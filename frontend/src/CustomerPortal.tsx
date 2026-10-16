@@ -18,8 +18,6 @@ import {
   listBookings,
   listEvents,
   listWaitlist,
-  LookupOutcome,
-  PaymentOutcome,
   reconcileBooking,
   reconcileRefund,
   Refund,
@@ -27,7 +25,7 @@ import {
   WaitlistClaim,
   WaitlistEntry,
 } from './api'
-import { ErrorPanel, Loading, OutcomeFields, StatusBadge, SuccessPanel } from './ui'
+import { ErrorPanel, Loading, StatusBadge, SuccessPanel } from './ui'
 import { errorMessage, formText, formatDate, formatMinor, isAbort, newIdempotencyKey } from './utils'
 
 type Props = { token: string; onLogout: () => void }
@@ -287,11 +285,8 @@ function CheckoutPanel({ token, hold, onLogout, onBooked }: Props & { hold: Hold
     if (busy) return
     setBusy(true)
     setError('')
-    const data = new FormData(event.currentTarget)
     try {
-      setBooking(await checkout(token, 'id' in hold ? hold.id : hold.holdId, key,
-        formText(data, 'paymentOutcome') as PaymentOutcome,
-        formText(data, 'paymentLookup') as LookupOutcome))
+      setBooking(await checkout(token, 'id' in hold ? hold.id : hold.holdId, key))
     } catch (cause) {
       if (!unauthorized(cause, onLogout)) setError(errorMessage(cause))
     } finally {
@@ -334,9 +329,8 @@ function CheckoutPanel({ token, hold, onLogout, onBooked }: Props & { hold: Hold
         <div className="total"><dt>Total</dt><dd>{formatMinor(hold.totalMinor, currency)}</dd></div>
       </dl>
       <p>Hold expires <time dateTime={hold.expiresAt}>{formatDate(hold.expiresAt)}</time>.</p>
-      <OutcomeFields prefix="payment" />
       <button className="primary" type="submit" disabled={busy}>{busy ? 'Processing once…' : 'Complete checkout'}</button>
-      <p className="privacy-note">The mock outcome controls are visible only because this is the assignment’s test payment provider.</p>
+      <p className="privacy-note">Payments are processed by the server. This demo uses an internal mock provider.</p>
       {error && <ErrorPanel message={error} />}
     </form>
   )
@@ -389,11 +383,8 @@ function Bookings({ token, onLogout }: Props) {
     if (!detail || selectedTickets.length === 0 || busy) return
     setBusy(true)
     setError('')
-    const data = new FormData(event.currentTarget)
     try {
-      const result = await cancelTickets(token, detail.id, selectedTickets, idempotencyKey,
-        formText(data, 'refundOutcome') as PaymentOutcome,
-        formText(data, 'refundLookup') as LookupOutcome)
+      const result = await cancelTickets(token, detail.id, selectedTickets, idempotencyKey)
       setRefund(result)
       load()
     } catch (cause) {
@@ -410,7 +401,7 @@ function Bookings({ token, onLogout }: Props) {
     try {
       setRefund(action === 'reconcile'
         ? await reconcileRefund(token, refund.id)
-        : await retryRefund(token, refund.id, idempotencyKey, 'SUCCESS', 'UNKNOWN'))
+        : await retryRefund(token, refund.id, idempotencyKey))
       load()
     } catch (cause) {
       if (!unauthorized(cause, onLogout)) setError(errorMessage(cause))
@@ -443,7 +434,6 @@ function Bookings({ token, onLogout }: Props) {
                 const eligible = ticket.state === 'CONFIRMED'
                 return <label key={ticket.id} className="check-row"><input type="checkbox" disabled={!eligible} checked={selectedTickets.includes(ticket.id)} onChange={() => setSelectedTickets((current) => current.includes(ticket.id) ? current.filter((id) => id !== ticket.id) : [...current, ticket.id])} /> <span>{ticket.section}, row {ticket.row}, seat {ticket.number} · {formatMinor(ticket.chargedTotalMinor, ticket.currency)} · {ticket.state.replaceAll('_', ' ')}</span></label>
               })}</div>
-              <OutcomeFields prefix="refund" />
               <button className="danger" type="submit" disabled={selectedTickets.length === 0 || busy}>{busy ? 'Submitting once…' : 'Cancel selected tickets'}</button>
             </fieldset>
           </form>

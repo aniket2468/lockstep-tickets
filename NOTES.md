@@ -70,6 +70,10 @@ The backend uses Java 21, Spring Boot, JDBC, Flyway, and PostgreSQL. The fronten
 uses React, TypeScript, and Vite. Docker Compose provides a reproducible local
 environment.
 
+The opt-in demo profile provides three events and 36 event seats across two
+sections, with multiple tiers, accessible and blocked inventory, automatic
+discounts, and the `SAVE10` and `VIP15` promotion scenarios.
+
 ## Decisions I made
 
 ### 1. Preventing double sales
@@ -99,6 +103,11 @@ still have succeeded.
 Every checkout uses an idempotency key. A definite decline releases the hold.
 An unknown or timed-out payment becomes `PAYMENT_PENDING`; it does not create a
 duplicate charge and does not make the seat available to another customer.
+
+Provider outcomes are controlled inside the provider adapter. Public checkout,
+refund, and admin request bodies cannot select success, decline, timeout, or
+lookup results. Normal demo calls succeed; integration tests register isolated
+one-shot provider scenarios directly in-process to prove failure handling.
 
 The mock provider exposes status lookup, and the booking owner can trigger a
 reconciliation endpoint. Provider success confirms the booking once; provider
@@ -188,6 +197,10 @@ accounts are disabled by default and require explicit local passwords.
 - **Uncertain provider results:** treating a timeout as failure could release a
   paid seat. Explicit pending states and idempotent status lookup keep the seat
   protected until the outcome is known.
+- **Test controls leaking into the product:** the first UI and API design let a
+  customer choose mock payment/refund outcomes. I removed those public fields;
+  deterministic failures are now injected only inside backend tests, while the
+  normal demo provider succeeds internally.
 - **Refund arithmetic:** percentage rounding could lose or create minor units.
   Largest-remainder allocation makes the total exactly match the policy amount.
 - **Venue-local dates:** UTC-only comparisons produce errors around midnight and

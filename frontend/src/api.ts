@@ -1,7 +1,5 @@
 export type Money = { amountMinor: number; currency: string }
 export type Role = 'CUSTOMER' | 'ADMIN'
-export type PaymentOutcome = 'SUCCESS' | 'DECLINE' | 'TIMEOUT' | 'UNKNOWN'
-export type LookupOutcome = 'SUCCESS' | 'DECLINE' | 'UNKNOWN'
 
 export type EventSummary = {
   id: string
@@ -231,8 +229,8 @@ export const createHold = (token: string, eventId: string, seatIds: string[], pr
     promoCode: promoCode.trim() || null,
   }), token)
 
-export const checkout = (token: string, holdId: string, key: string, paymentOutcome: PaymentOutcome, lookupOutcome: LookupOutcome) =>
-  request<Booking>(`/api/holds/${encodeURIComponent(holdId)}/checkout`, withKey({ paymentOutcome, lookupOutcome }, key), token)
+export const checkout = (token: string, holdId: string, key: string) =>
+  request<Booking>(`/api/holds/${encodeURIComponent(holdId)}/checkout`, withKey({}, key), token)
 
 export const reconcileBooking = (token: string, bookingId: string) =>
   request<Booking>(`/api/bookings/${encodeURIComponent(bookingId)}/reconcile`, { method: 'POST' }, token)
@@ -243,14 +241,14 @@ export const listBookings = (token: string, signal?: AbortSignal) =>
 export const getBooking = (token: string, bookingId: string, signal?: AbortSignal) =>
   request<BookingDetail>(`/api/bookings/${encodeURIComponent(bookingId)}`, { signal }, token)
 
-export const cancelTickets = (token: string, bookingId: string, ticketIds: string[], key: string, refundOutcome: PaymentOutcome, lookupOutcome: LookupOutcome) =>
-  request<Refund>(`/api/bookings/${encodeURIComponent(bookingId)}/cancellations`, withKey({ ticketIds, refundOutcome, lookupOutcome }, key), token)
+export const cancelTickets = (token: string, bookingId: string, ticketIds: string[], key: string) =>
+  request<Refund>(`/api/bookings/${encodeURIComponent(bookingId)}/cancellations`, withKey({ ticketIds }, key), token)
 
 export const reconcileRefund = (token: string, refundId: string) =>
   request<Refund>(`/api/refunds/${encodeURIComponent(refundId)}/reconcile`, { method: 'POST' }, token)
 
-export const retryRefund = (token: string, refundId: string, key: string, refundOutcome: PaymentOutcome, lookupOutcome: LookupOutcome) =>
-  request<Refund>(`/api/refunds/${encodeURIComponent(refundId)}/retry`, withKey({ refundOutcome, lookupOutcome }, key), token)
+export const retryRefund = (token: string, refundId: string, key: string) =>
+  request<Refund>(`/api/refunds/${encodeURIComponent(refundId)}/retry`, withKey({}, key), token)
 
 export const listWaitlist = (token: string, signal?: AbortSignal) =>
   request<WaitlistEntry[]>('/api/waitlist', { signal }, token)
@@ -270,14 +268,14 @@ export const mutateSeat = (token: string, eventId: string, seatId: string, actio
 export const rescheduleEvent = (token: string, eventId: string, startsAt: string, reason: string) =>
   request<{ id: string; state: string; previousStartsAt: string; startsAt: string; refundWindowEndsAt: string }>(`/api/admin/events/${encodeURIComponent(eventId)}/reschedule`, json({ startsAt, reason }), token)
 
-export const cancelEvent = (token: string, eventId: string, reason: string, refundOutcome: PaymentOutcome, lookupOutcome: LookupOutcome) =>
-  request<{ id: string; state: string; refunds: Refund[] }>(`/api/admin/events/${encodeURIComponent(eventId)}/cancel`, json({ reason, refundOutcome, lookupOutcome }), token)
+export const cancelEvent = (token: string, eventId: string, reason: string) =>
+  request<{ id: string; state: string; refunds: Refund[] }>(`/api/admin/events/${encodeURIComponent(eventId)}/cancel`, json({ reason }), token)
 
 export const promoteWaitlist = (token: string, eventId: string, reason: string) =>
   request<{ entryId: string; offerHoldId: string; state: string; expiresAt: string; seatIds: string[] }>(`/api/admin/events/${encodeURIComponent(eventId)}/waitlist/promotions`, json({ reason }), token)
 
-export const exceptionalRefund = (token: string, bookingId: string, ticketIds: string[], key: string, reason: string, refundOutcome: PaymentOutcome, lookupOutcome: LookupOutcome) =>
-  request<{ id: string; state: string; replayed: boolean }>(`/api/admin/bookings/${encodeURIComponent(bookingId)}/refunds`, withKey({ ticketIds, reason, refundOutcome, lookupOutcome }, key), token)
+export const exceptionalRefund = (token: string, bookingId: string, ticketIds: string[], key: string, reason: string) =>
+  request<{ id: string; state: string; replayed: boolean }>(`/api/admin/bookings/${encodeURIComponent(bookingId)}/refunds`, withKey({ ticketIds, reason }, key), token)
 
 export const getSalesReport = (token: string, eventId: string, signal?: AbortSignal) =>
   request<SalesReport>(`/api/admin/reports/events/${encodeURIComponent(eventId)}/sales`, { signal }, token)

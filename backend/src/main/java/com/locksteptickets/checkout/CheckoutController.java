@@ -5,7 +5,6 @@ import java.util.UUID;
 import com.locksteptickets.auth.AuthenticatedAccount;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,9 +35,7 @@ public class CheckoutController {
         @Valid @RequestBody CheckoutRequest request,
         @AuthenticationPrincipal AuthenticatedAccount account
     ) {
-        var result = service.checkout(holdId, key, request.paymentOutcome(),
-            request.lookupOutcome() == null ? MockPaymentGateway.LookupOutcome.UNKNOWN
-                : request.lookupOutcome(), account);
+        var result = service.checkout(holdId, key, account);
         return ResponseEntity.status(result.replayed() ? HttpStatus.OK : HttpStatus.CREATED)
             .body(result.booking());
     }
@@ -51,8 +48,5 @@ public class CheckoutController {
         return service.reconcile(bookingId, account);
     }
 
-    public record CheckoutRequest(
-        @NotNull MockPaymentGateway.RequestedOutcome paymentOutcome,
-        MockPaymentGateway.LookupOutcome lookupOutcome
-    ) {}
+    public record CheckoutRequest() {}
 }

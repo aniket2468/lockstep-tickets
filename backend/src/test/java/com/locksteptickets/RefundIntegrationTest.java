@@ -38,6 +38,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
+import com.locksteptickets.checkout.MockPaymentGateway;
 
 @SpringBootTest(classes=RefundIntegrationTest.FixedClockConfiguration.class)
 @Testcontainers
@@ -47,10 +48,12 @@ class RefundIntegrationTest {
     @Container @ServiceConnection static final PostgreSQLContainer POSTGRES=
         new PostgreSQLContainer(DockerImageName.parse("postgres:18.6-alpine"));
     @Autowired JdbcClient jdbc; @Autowired WebApplicationContext context;
+    @Autowired MockPaymentGateway gateway;
     MockMvc mvc; UUID one,two;
 
     @BeforeEach void setup()throws Exception{
         mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+        gateway.clearSimulations();
         jdbc.sql("TRUNCATE admin_audit").update();
         for(String table:new String[]{"event_reschedule","outbox_event","refund_attempt","refund_item","refund","promo_redemption",
             "payment_attempt","ticket","booking","seat_hold_item","seat_hold","customer_event_limit","promo_code",
@@ -128,8 +131,10 @@ class RefundIntegrationTest {
             .andReturn().getResponse().getContentAsString();
         UUID refund=UUID.fromString(body.replaceAll(".*\"id\":\"([^\"]+)\".*","$1"));
         mvc.perform(createHold(f.event(),f.seats().getFirst(),TWO)).andExpect(status().isConflict());
+        gateway.simulateOnce("refund-key-0005",MockPaymentGateway.RequestedOutcome.SUCCESS,
+            MockPaymentGateway.LookupOutcome.UNKNOWN);
         mvc.perform(auth(post("/api/refunds/{id}/retry",refund).header("Idempotency-Key","refund-key-0005")
-            .contentType(MediaType.APPLICATION_JSON).content("{\"refundOutcome\":\"SUCCESS\"}"),ONE))
+            .contentType(MediaType.APPLICATION_JSON).content("{}"),ONE))
             .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("SUCCEEDED"));
         assertThat(count("refund")).isEqualTo(1);assertThat(count("refund_attempt")).isEqualTo(2);
     }
@@ -153,10 +158,11 @@ class RefundIntegrationTest {
             .andReturn().getResponse().getStatus();};}
 
     MockHttpServletRequestBuilder cancel(UUID booking,List<UUID> tickets,String key,String outcome,String lookup,String token){
+        gateway.simulateOnce(key,MockPaymentGateway.RequestedOutcome.valueOf(outcome),
+            MockPaymentGateway.LookupOutcome.valueOf(lookup));
         String ids=tickets.stream().map(id->"\""+id+"\"").reduce((a,b)->a+","+b).orElse("");
         return auth(post("/api/bookings/{id}/cancellations",booking).header("Idempotency-Key",key)
-            .contentType(MediaType.APPLICATION_JSON).content("{\"ticketIds\":["+ids+"],\"refundOutcome\":\""+outcome
-                +"\",\"lookupOutcome\":\""+lookup+"\"}"),token);}
+            .contentType(MediaType.APPLICATION_JSON).content("{\"ticketIds\":["+ids+"]}"),token);}
     MockHttpServletRequestBuilder createHold(UUID event,UUID seat,String token){return auth(post("/api/events/{id}/holds",event)
         .contentType(MediaType.APPLICATION_JSON).content("{\"seatIds\":[\""+seat+"\"]}"),token);}
     MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder r,String token){return r.header(HttpHeaders.AUTHORIZATION,"Bearer "+token);}

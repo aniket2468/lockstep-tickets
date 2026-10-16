@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.UUID;
 
 import com.locksteptickets.auth.AuthenticatedAccount;
-import com.locksteptickets.checkout.MockPaymentGateway;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -41,24 +40,19 @@ public class AdminController {
         @AuthenticationPrincipal AuthenticatedAccount actor){return service.reschedule(event,request.startsAt(),request.reason(),actor);}
     @PostMapping("/events/{event}/cancel") AdminService.CancellationResponse cancel(
         @PathVariable UUID event,@Valid @RequestBody CancelEventRequest request,
-        @AuthenticationPrincipal AuthenticatedAccount actor){return service.cancel(event,request.reason(),
-            request.refundOutcome(),lookup(request.lookupOutcome()),actor);}
+        @AuthenticationPrincipal AuthenticatedAccount actor){return service.cancel(event,request.reason(),actor);}
     @PostMapping("/bookings/{booking}/refunds") ResponseEntity<AdminService.ExceptionalResult> refund(
         @PathVariable UUID booking,@RequestHeader("Idempotency-Key") String key,
         @Valid @RequestBody ExceptionalRefundRequest request,@AuthenticationPrincipal AuthenticatedAccount actor){
-        var result=service.exceptional(booking,request.ticketIds(),key,request.reason(),request.refundOutcome(),
-            lookup(request.lookupOutcome()),actor);return ResponseEntity.status(result.replayed()?HttpStatus.OK:HttpStatus.CREATED).body(result);}
+        var result=service.exceptional(booking,request.ticketIds(),key,request.reason(),actor);
+        return ResponseEntity.status(result.replayed()?HttpStatus.OK:HttpStatus.CREATED).body(result);}
     @GetMapping("/audit") List<AdminRepository.AuditRow> audit(
         @RequestParam(defaultValue="50") @Min(1) @Max(100) int limit,
         @RequestParam(defaultValue="0") @Min(0) @Max(5000) int offset,
         @AuthenticationPrincipal AuthenticatedAccount actor){return service.audits(limit,offset,actor);}
-    private MockPaymentGateway.LookupOutcome lookup(MockPaymentGateway.LookupOutcome value){
-        return value==null?MockPaymentGateway.LookupOutcome.UNKNOWN:value;}
     public record ReasonRequest(@NotBlank @Size(max=500) String reason){}
     public record RescheduleRequest(@NotNull Instant startsAt,@NotBlank @Size(max=500) String reason){}
-    public record CancelEventRequest(@NotBlank @Size(max=500) String reason,
-        @NotNull MockPaymentGateway.RequestedOutcome refundOutcome,MockPaymentGateway.LookupOutcome lookupOutcome){}
+    public record CancelEventRequest(@NotBlank @Size(max=500) String reason){}
     public record ExceptionalRefundRequest(@NotEmpty @Size(max=6) List<@NotNull UUID> ticketIds,
-        @NotBlank @Size(max=500) String reason,@NotNull MockPaymentGateway.RequestedOutcome refundOutcome,
-        MockPaymentGateway.LookupOutcome lookupOutcome){}
+        @NotBlank @Size(max=500) String reason){}
 }

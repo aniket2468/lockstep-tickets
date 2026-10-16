@@ -12,8 +12,8 @@ server image/version will be recorded when the local environment is created.
 | --- | --- | --- | --- |
 | Accepted rules documented | PASS | Manual comparison to supplied assignment and stakeholder reply on 2026-10-15 | Accepted answers and five required design decisions are recorded in `NOTES.md` |
 | Documentation whitespace check | PASS | `awk '/[[:blank:]]+$/ { ... }' README.md NOTES.md docs/*.md` on 2026-10-16 | Exit code 0; no trailing whitespace |
-| Backend unit tests | PASS | `JAVA_HOME=... mvn test` on 2026-10-16 | 15 unit/policy/security tests passed on Java 21.0.12.1, including trusted-proxy parsing and declared/chunked-style JSON size limits |
-| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 61 integration tests passed against PostgreSQL 18.6; 76 backend tests total with 0 failures, errors, or skips |
+| Backend unit tests | PASS | `JAVA_HOME=... mvn test` rerun on 2026-10-16 | 15 unit/policy/security tests passed on Java 21.0.12.1, including trusted-proxy parsing and declared/chunked-style JSON size limits |
+| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 61 integration tests passed against PostgreSQL 18.6; 76 backend tests total with 0 failures, errors, or skips after removing client-controlled provider outcomes and expanding demo fixtures |
 | Same-seat concurrency repeated | PASS | 20 two-customer rounds coordinated with latches against PostgreSQL | Every round produced exactly one `201`, one `409`, one hold, and one hold item; no timing sleeps |
 | Customer-limit concurrency | NOT RUN | Sequential hold, checkout, refund, and waitlist boundary cases pass | A dedicated concurrent race at the aggregate 12-ticket boundary has not been run |
 | Promo-limit concurrency | PASS | Two latch-coordinated checkouts for the final global use | Exactly one checkout returned `201`, one returned `409`, and only one payment attempt/redemption was created |
@@ -31,7 +31,9 @@ server image/version will be recorded when the local environment is created.
 | Authorization/horizontal access | PASS | Checkout, refund, admin, waitlist, and report integration cases | Unrelated customers receive safe `404` for owned resources, customers receive `403` on admin/report operations, and rejected requests create no success audit |
 | Failure injection/recovery | NOT RUN | Success/decline/timeout/unknown and lookup pass | Process/database interruption injection and scheduled recovery worker remain unproved |
 | Audit atomicity/cardinality | PASS | Admin/waitlist PostgreSQL integration tests and V6 triggers | Successful overrides/promotions created one audit row; rejected operations created none; database triggers rejected audit update and delete; event/inventory/waitlist outbox writes share their operation transaction |
-| Frontend workflow tests | PASS | `npm test -- --run` on 2026-10-16 | 1 file and 11 tests passed with Vitest 5.0.5; covered role routing, memory-only tokens, stable errors, 401 logout, encoded/stale search, seat selection, server quotes, idempotency headers, sold-out waitlisting, booking cancellation, offer claim, admin reports/override, explicit-offset time validation, and audit output |
+| Frontend workflow tests | PASS | `npm test -- --run` rerun on 2026-10-16 | 1 file and 11 tests passed with Vitest 5.0.5; covered role routing, memory-only tokens, stable errors, 401 logout, encoded/stale search, seat selection, server quotes, idempotency headers, absence of provider-outcome controls, sold-out waitlisting, booking cancellation, offer claim, admin reports/override, explicit-offset time validation, and audit output |
+| Provider simulation boundary | PASS | Strict JSON checkout test plus frontend request assertions on 2026-10-16 | Public customer/admin DTOs no longer accept payment, refund, or lookup outcomes; normal calls use internal success and failure scenarios are registered only inside integration tests |
+| Demo catalog fixture | PASS | `DemoProfileIntegrationTest` on 2026-10-16 | Opt-in demo startup created 2 hashed accounts, 3 events, 36 event seats, 2 sections, multiple tiers, blocked/accessible examples, and 2 promotions without destructive updates |
 | Frontend stale-response protection | PASS | Controlled unresolved-search test with two successive queries | The first request's `AbortSignal` became aborted, the newer empty result rendered, and the stale promise could not replace it |
 | Frontend lint | PASS | `npm run lint` on 2026-10-16 | Type-aware ESLint completed with zero warnings; unsafe form-value coercion and effect-triggered state resets were corrected rather than suppressed |
 | Frontend production build | PASS | `npm run build` on 2026-10-16 | TypeScript 6 and Vite 8 production build completed; 21 modules transformed |
@@ -42,7 +44,7 @@ server image/version will be recorded when the local environment is created.
 | Container image scan | PASS | Trivy 0.74.0 against exported rebuilt frontend image on 2026-10-16; same gate | Alpine 3.23.4: 0. Initial scan found and blocked 43 HIGH findings before runtime package upgrades |
 | Container runtime hardening | PASS | `docker compose exec ... id` and `docker inspect` on 2026-10-16 | Backend UID 100 and frontend UID 101; both root filesystems read-only |
 | Live health and frontend headers | PASS | Local `curl` checks on ports 8081 and 3000 on 2026-10-16 | Both health paths were `UP`; CSP/referrer/content-type/frame/permissions headers were present; nginx and direct backend independently rejected a 70 KB login with `413`, and the backend returned the stable redacted error envelope |
-| Docker Compose build and upgrade | PASS | `docker compose up --build --detach` on 2026-10-16 against the preserved volume | Initial run detected V6 and applied only V7 in 12 ms; a final source rebuild validated all 8 migrations at schema version 7. PostgreSQL and backend health were `UP`, the UI loaded, unauthenticated waitlist/report access returned `401`, then the stack stopped with its volume preserved |
+| Docker Compose build and upgrade | PASS | `docker compose up --build --detach` rerun on 2026-10-16 against the preserved volume | Rebuilt backend/frontend images started successfully, Flyway validated schema version 7, backend health was `UP`, and idempotent demo initialization expanded the existing volume to 3 events, 36 event seats, and 2 promos without resetting it |
 | README clean-run commands | PASS | Commands executed from the new repository on 2026-10-15 | Maven verify, npm install/test/lint/build, Compose build/start, health check, and teardown behavior verified |
 | Catalog/auth runtime smoke test | PASS | Compose rebuild plus local health, UI, and unauthenticated catalog requests on 2026-10-15 | Packaged UI served the expected title, health returned `UP`, and `/api/events` returned the stable `AUTHENTICATION_REQUIRED` envelope with HTTP 401 |
 | Secret-pattern review | PASS | Focused `rg` scan of source on 2026-10-16 | Matches were limited to password variable names, redaction code, and deliberate test-only credentials; no private keys or provider tokens found |
@@ -54,6 +56,11 @@ The project is **not fully verified** while any release-blocking gate remains
 
 Failures remain recorded here even after their regression gates pass:
 
+- The first frontend rerun after removing provider-outcome controls passed 10
+  of 11 tests. One session test asserted the authenticated catalog request
+  before React had issued it; the production behavior was correct. The test now
+  waits for the request explicitly, and the full 11-test suite, lint, and build
+  pass without timing assumptions.
 - The first release image scan blocked 3 CRITICAL Tomcat, 5 HIGH Jackson, and
   43 HIGH frontend Alpine findings. Spring-managed version overrides moved
   Tomcat to 11.0.25 and Jackson to 3.1.7; the nginx runtime now upgrades its

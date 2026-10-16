@@ -46,8 +46,12 @@ class DemoProfileIntegrationTest {
     void explicitDemoProfileCreatesHashedAccountsAndCatalogFixture() {
         assertThat(jdbcClient.sql("SELECT count(*) FROM account")
             .query(Long.class).single()).isEqualTo(2);
+        assertThat(jdbcClient.sql("SELECT count(*) FROM event")
+            .query(Long.class).single()).isEqualTo(3);
         assertThat(jdbcClient.sql("SELECT count(*) FROM event_seat")
-            .query(Long.class).single()).isEqualTo(1);
+            .query(Long.class).single()).isEqualTo(36);
+        assertThat(jdbcClient.sql("SELECT count(*) FROM promo_code")
+            .query(Long.class).single()).isEqualTo(2);
 
         String customerHash = jdbcClient.sql("""
                 SELECT password_hash FROM account WHERE email = 'customer@lockstep.test'

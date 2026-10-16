@@ -50,6 +50,19 @@ Demo accounts:
 - Admin: `admin@lockstep.test` / the value of
   `LOCKSTEP_DEMO_ADMIN_PASSWORD`
 
+The demo catalog contains three events with 12 assigned seats each across
+Orchestra and Balcony sections. It includes multiple price tiers, accessible
+seats, a few pre-blocked seats, early-bird and group pricing, and two promo
+codes:
+
+- `SAVE10`: 10% off any demo event, up to three uses per customer.
+- `VIP15`: exclusive 15% off `Concurrency Live`; it does not stack with the
+  event's automatic discounts.
+
+Payments and refunds succeed by default in the demo. Provider failures are
+simulated internally by the integration tests; customers and administrators do
+not choose payment-provider outcomes.
+
 Stop the application without deleting its data:
 
 ```bash
@@ -136,6 +149,8 @@ backend on port 8080.
 - Application containers run as non-root users with read-only filesystems.
 - Authorization is enforced by the backend; hiding controls in React is not
   treated as a security boundary.
+- Payment and refund outcomes come from the server-side provider boundary and
+  cannot be selected or mass-assigned by API clients.
 
 Before a real deployment, use a secret manager, TLS, a restricted database
 role, a narrowly configured trusted-proxy network, centralized rate limiting,

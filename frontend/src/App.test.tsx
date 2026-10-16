@@ -68,6 +68,7 @@ describe('secure session boundary', () => {
     expect(screen.getByText(/access token stays in memory/i)).toBeInTheDocument()
     await signIn()
     expect(setItem).not.toHaveBeenCalled()
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
     expect(new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers).get('Authorization')).toBe('Bearer secret-token')
   })
 
@@ -149,12 +150,14 @@ describe('customer workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Hold selected seats' }))
     expect(await screen.findByRole('heading', { name: 'Checkout' })).toBeInTheDocument()
     expect(screen.getByText('$47.50')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Mock provider result')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Status lookup result')).not.toBeInTheDocument()
     expect(requestBody(vi.mocked(fetch).mock.calls[3])).toEqual({ seatIds: ['seat-1'], promoCode: 'SAVE10' })
     fireEvent.click(screen.getByRole('button', { name: 'Complete checkout' }))
     expect(await screen.findByRole('heading', { name: 'Booking LS-123' })).toBeInTheDocument()
     const checkoutCall = vi.mocked(fetch).mock.calls[4]
     expect(new Headers(checkoutCall[1]?.headers).get('Idempotency-Key')).toBe('ui-11111111-1111-4111-8111-111111111111')
-    expect(requestBody(checkoutCall)).toEqual({ paymentOutcome: 'SUCCESS', lookupOutcome: 'UNKNOWN' })
+    expect(requestBody(checkoutCall)).toEqual({})
   })
 
   it('offers sold-out waitlisting without pretending to reserve or purchase seats', async () => {
@@ -191,7 +194,7 @@ describe('customer workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel selected tickets' }))
     expect(await screen.findByText('Refund SUCCEEDED')).toBeInTheDocument()
     const call = vi.mocked(fetch).mock.calls[4]
-    expect(requestBody(call)).toMatchObject({ ticketIds: ['ticket-1'], refundOutcome: 'SUCCESS', lookupOutcome: 'UNKNOWN' })
+    expect(requestBody(call)).toEqual({ ticketIds: ['ticket-1'] })
     expect(new Headers(call[1]?.headers).get('Idempotency-Key')).toMatch(/^ui-/)
   })
 

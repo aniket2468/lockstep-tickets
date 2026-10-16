@@ -45,18 +45,20 @@ public class RefundService {
     }
 
     public RefundResult cancel(UUID bookingId,List<UUID> requestedIds,String rawKey,
-                               MockPaymentGateway.RequestedOutcome requested,
-                               MockPaymentGateway.LookupOutcome lookup,AuthenticatedAccount account) {
+                               AuthenticatedAccount account) {
         requireCustomer(account);
         String key=key(rawKey); List<UUID> ids=ids(requestedIds); byte[] fingerprint=fingerprint(bookingId,ids);
+        var scenario=gateway.scenarioFor(key);
+        var requested=scenario.requested();var lookup=scenario.lookup();
         Prepared prepared=transactions.execute(status->prepare(bookingId,ids,key,fingerprint,requested,lookup,account.accountId()));
         if(prepared.replayed()) return new RefundResult(response(prepared.refund()),true);
         return new RefundResult(response(process(prepared.refund(),prepared.attempt(),requested)),false);
     }
 
-    public RefundResponse retry(UUID refundId,String rawKey,MockPaymentGateway.RequestedOutcome requested,
-                                MockPaymentGateway.LookupOutcome lookup,AuthenticatedAccount account) {
+    public RefundResponse retry(UUID refundId,String rawKey,AuthenticatedAccount account) {
         requireCustomer(account); String key=key(rawKey);
+        var scenario=gateway.scenarioFor(key);
+        var requested=scenario.requested();var lookup=scenario.lookup();
         Retry retry=transactions.execute(status->prepareRetry(refundId,key,requested,lookup,account.accountId()));
         if(retry.attempt()==0) return response(retry.refund());
         return response(process(retry.refund(),retry.attempt(),requested));

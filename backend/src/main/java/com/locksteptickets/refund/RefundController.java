@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.UUID;
 
 import com.locksteptickets.auth.AuthenticatedAccount;
-import com.locksteptickets.checkout.MockPaymentGateway;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -34,19 +33,15 @@ public class RefundController {
     ResponseEntity<RefundService.RefundResponse> cancel(@PathVariable UUID id,
         @RequestHeader("Idempotency-Key") String key,@Valid @RequestBody CancelRequest request,
         @AuthenticationPrincipal AuthenticatedAccount account){
-        var result=service.cancel(id,request.ticketIds(),key,request.refundOutcome(),
-            request.lookupOutcome()==null?MockPaymentGateway.LookupOutcome.UNKNOWN:request.lookupOutcome(),account);
+        var result=service.cancel(id,request.ticketIds(),key,account);
         return ResponseEntity.status(result.replayed()?HttpStatus.OK:HttpStatus.CREATED).body(result.refund());
     }
     @PostMapping("/refunds/{id}/reconcile") RefundService.RefundResponse reconcile(@PathVariable UUID id,
         @AuthenticationPrincipal AuthenticatedAccount account){return service.reconcile(id,account);}
     @PostMapping("/refunds/{id}/retry") RefundService.RefundResponse retry(@PathVariable UUID id,
         @RequestHeader("Idempotency-Key") String key,@Valid @RequestBody RetryRequest request,
-        @AuthenticationPrincipal AuthenticatedAccount account){return service.retry(id,key,request.refundOutcome(),
-            request.lookupOutcome()==null?MockPaymentGateway.LookupOutcome.UNKNOWN:request.lookupOutcome(),account);}
+        @AuthenticationPrincipal AuthenticatedAccount account){return service.retry(id,key,account);}
 
-    public record CancelRequest(@NotEmpty @Size(max=6) List<@NotNull UUID> ticketIds,
-        @NotNull MockPaymentGateway.RequestedOutcome refundOutcome,MockPaymentGateway.LookupOutcome lookupOutcome){}
-    public record RetryRequest(@NotNull MockPaymentGateway.RequestedOutcome refundOutcome,
-        MockPaymentGateway.LookupOutcome lookupOutcome){}
+    public record CancelRequest(@NotEmpty @Size(max=6) List<@NotNull UUID> ticketIds){}
+    public record RetryRequest(){}
 }

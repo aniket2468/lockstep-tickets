@@ -33,8 +33,6 @@ public class CheckoutService {
     }
 
     public CheckoutResult checkout(UUID holdId, String key,
-                                   MockPaymentGateway.RequestedOutcome requested,
-                                   MockPaymentGateway.LookupOutcome lookup,
                                    AuthenticatedAccount account) {
         requireCustomer(account);
         String normalizedKey = key.strip();
@@ -42,7 +40,10 @@ public class CheckoutService {
             throw new HoldRejectedException(HttpStatus.BAD_REQUEST, "INVALID_REQUEST",
                 "The idempotency key must contain between 8 and 100 characters.");
         }
-        byte[] fingerprint = fingerprint(holdId, requested, lookup);
+        MockPaymentGateway.Scenario scenario = gateway.scenarioFor(normalizedKey);
+        MockPaymentGateway.RequestedOutcome requested = scenario.requested();
+        MockPaymentGateway.LookupOutcome lookup = scenario.lookup();
+        byte[] fingerprint = fingerprint(holdId);
         Prepared prepared = transactions.execute(status -> prepare(
             holdId, normalizedKey, fingerprint, requested, lookup, account.accountId()));
         if (prepared.replayed()) {
@@ -87,7 +88,7 @@ public class CheckoutService {
                              MockPaymentGateway.LookupOutcome lookup, UUID accountId) {
         CheckoutRepository.BookingRow prior = repository.findByKey(accountId, key).orElse(null);
         if (prior != null) {
-            verifyFingerprint(prior, fingerprint);
+            verifyHold(prior, holdId);
             return new Prepared(prior, true);
         }
         CheckoutRepository.HoldRow initial = repository.findOwnedHold(holdId, accountId)
@@ -95,7 +96,7 @@ public class CheckoutService {
         ensureBookable(repository.lockEvent(initial.eventId()));
         prior = repository.findByKey(accountId, key).orElse(null);
         if (prior != null) {
-            verifyFingerprint(prior, fingerprint);
+            verifyHold(prior, holdId);
             return new Prepared(prior, true);
         }
         repository.lockLimit(accountId, initial.eventId());
@@ -232,18 +233,17 @@ public class CheckoutService {
         return repository.accountIdForBooking(bookingId).orElseThrow(ResourceNotFoundException::new);
     }
 
-    private void verifyFingerprint(CheckoutRepository.BookingRow booking, byte[] expected) {
-        if (!MessageDigest.isEqual(booking.fingerprint(), expected)) {
+    private void verifyHold(CheckoutRepository.BookingRow booking, UUID expectedHoldId) {
+        if (!booking.holdId().equals(expectedHoldId)) {
             throw conflict("IDEMPOTENCY_KEY_REUSED",
                 "The idempotency key was already used for a different request.");
         }
     }
 
-    private byte[] fingerprint(UUID holdId, MockPaymentGateway.RequestedOutcome requested,
-                               MockPaymentGateway.LookupOutcome lookup) {
+    private byte[] fingerprint(UUID holdId) {
         try {
             return MessageDigest.getInstance("SHA-256").digest(
-                (holdId + "|" + requested + "|" + lookup).getBytes(StandardCharsets.UTF_8));
+                holdId.toString().getBytes(StandardCharsets.UTF_8));
         } catch (NoSuchAlgorithmException impossible) {
             throw new IllegalStateException(impossible);
         }

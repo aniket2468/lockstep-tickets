@@ -179,7 +179,7 @@ class WaitlistReportIntegrationTest {
                 """).param("account",one).param("event",f.event()).query(String.class).single())
             .isEqualTo("1:1");
         mvc.perform(auth(post("/api/bookings/{id}/cancellations",booking).header("Idempotency-Key","report-refund")
-            .contentType(MediaType.APPLICATION_JSON).content("{\"ticketIds\":[\""+ticket+"\"],\"refundOutcome\":\"SUCCESS\"}"),ONE))
+            .contentType(MediaType.APPLICATION_JSON).content("{\"ticketIds\":[\""+ticket+"\"]}"),ONE))
             .andExpect(status().isCreated());
         mvc.perform(auth(get("/api/admin/reports/events/{id}/sales",f.event()),ONE)).andExpect(status().isForbidden());
         mvc.perform(auth(get("/api/admin/reports/events/{id}/sales",f.event()),ADMIN)).andExpect(status().isOk())
@@ -204,7 +204,7 @@ class WaitlistReportIntegrationTest {
         UUID ordinary=jdbc.sql("SELECT id FROM seat_hold WHERE event_id=:event AND account_id=:account")
             .param("event",f.event()).param("account",three).query(UUID.class).single();
         mvc.perform(auth(post("/api/admin/events/{id}/cancel",f.event()).contentType(MediaType.APPLICATION_JSON)
-            .content("{\"reason\":\"event cancelled\",\"refundOutcome\":\"SUCCESS\"}"),ADMIN))
+            .content("{\"reason\":\"event cancelled\"}"),ADMIN))
             .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("CANCELLED"));
         assertThat(state(offered)).isEqualTo("CANCELLED");assertThat(state(waiting)).isEqualTo("CANCELLED");
         assertThat(jdbc.sql("SELECT state FROM seat_hold WHERE id=:id").param("id",offer).query(String.class).single())
@@ -235,7 +235,7 @@ class WaitlistReportIntegrationTest {
             .content("{\"seatIds\":[\""+seat+"\"]}"),token);}
     private MockHttpServletRequestBuilder checkout(UUID hold,String key,String token){return auth(
         post("/api/holds/{id}/checkout",hold).header("Idempotency-Key",key).contentType(MediaType.APPLICATION_JSON)
-            .content("{\"paymentOutcome\":\"SUCCESS\"}"),token);}
+            .content("{}"),token);}
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request,String token){return request.header(HttpHeaders.AUTHORIZATION,"Bearer "+token);}
     private void block(UUID seat){jdbc.sql("UPDATE event_seat SET inventory_state='BLOCKED' WHERE id=:id").param("id",seat).update();}
     private void release(UUID seat){jdbc.sql("UPDATE event_seat SET inventory_state='AVAILABLE' WHERE id=:id").param("id",seat).update();}

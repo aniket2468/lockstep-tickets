@@ -39,6 +39,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
+import com.locksteptickets.checkout.MockPaymentGateway;
 
 @SpringBootTest(classes=AdminIntegrationTest.FixedClockConfiguration.class)
 @Testcontainers
@@ -47,10 +48,12 @@ class AdminIntegrationTest {
     static final String ADMIN="A".repeat(43),CUSTOMER="C".repeat(43),OTHER="D".repeat(43);
     @Container @ServiceConnection static final PostgreSQLContainer POSTGRES=
         new PostgreSQLContainer(DockerImageName.parse("postgres:18.6-alpine"));
-    @Autowired JdbcClient jdbc;@Autowired WebApplicationContext context;MockMvc mvc;UUID admin,customer,other;
+    @Autowired JdbcClient jdbc;@Autowired WebApplicationContext context;
+    @Autowired MockPaymentGateway gateway;MockMvc mvc;UUID admin,customer,other;
 
     @BeforeEach void setup()throws Exception{
         mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+        gateway.clearSimulations();
         jdbc.sql("TRUNCATE admin_audit").update();
         for(String table:new String[]{"event_reschedule","outbox_event","refund_attempt","refund_item","refund",
             "promo_redemption","payment_attempt","ticket","booking","seat_hold_item","seat_hold",
@@ -132,7 +135,7 @@ class AdminIntegrationTest {
             .contentType(MediaType.APPLICATION_JSON).content("{\"startsAt\":\""+NOW.plusSeconds(12*86400)+"\",\"reason\":\"too early\"}"),ADMIN))
             .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("EVENT_NOT_MUTABLE"));
         mvc.perform(auth(post("/api/admin/events/{id}/cancel",f.event()).contentType(MediaType.APPLICATION_JSON)
-            .content("{\"reason\":\"too early\",\"refundOutcome\":\"SUCCESS\"}"),ADMIN))
+            .content("{\"reason\":\"too early\"}"),ADMIN))
             .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("EVENT_NOT_MUTABLE"));
         assertThat(jdbc.sql("SELECT state FROM event WHERE id=:id").param("id",f.event()).query(String.class).single())
             .isEqualTo("DRAFT");
@@ -152,7 +155,7 @@ class AdminIntegrationTest {
         mvc.perform(customerCancel(f,"customer-half-key",CUSTOMER)).andExpect(status().isCreated())
             .andExpect(jsonPath("$.amountMinor").value(500));
         mvc.perform(auth(post("/api/admin/events/{id}/cancel",f.event()).contentType(MediaType.APPLICATION_JSON)
-            .content("{\"reason\":\"venue closed\",\"refundOutcome\":\"SUCCESS\"}"),ADMIN))
+            .content("{\"reason\":\"venue closed\"}"),ADMIN))
             .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("CANCELLED"))
             .andExpect(jsonPath("$.refunds[0].amountMinor").value(600));
         assertThat(jdbc.sql("SELECT sum(amount_minor) FROM refund WHERE state='SUCCEEDED'").query(Long.class).single()).isEqualTo(1100);
@@ -160,7 +163,7 @@ class AdminIntegrationTest {
         assertThat(jdbc.sql("SELECT state FROM promo_redemption").query(String.class).single()).isEqualTo("RESTORED");
         assertThat(jdbc.sql("SELECT confirmed_ticket_count FROM customer_event_limit").query(Integer.class).single()).isZero();
         mvc.perform(auth(post("/api/admin/events/{id}/cancel",f.event()).contentType(MediaType.APPLICATION_JSON)
-            .content("{\"reason\":\"repeat\",\"refundOutcome\":\"SUCCESS\"}"),ADMIN)).andExpect(status().isConflict());
+            .content("{\"reason\":\"repeat\"}"),ADMIN)).andExpect(status().isConflict());
         assertThat(count("admin_audit")).isEqualTo(1);
     }
 
@@ -183,11 +186,13 @@ class AdminIntegrationTest {
         Fixture f=event(NOW.plusSeconds(10*86400));UUID seat=seat(f,"1",0);
         mvc.perform(createHold(f.event(),seat,CUSTOMER)).andExpect(status().isCreated());
         UUID hold=jdbc.sql("SELECT id FROM seat_hold WHERE event_id=:event").param("event",f.event()).query(UUID.class).single();
+        gateway.simulateOnce("pending-admin-key",MockPaymentGateway.RequestedOutcome.TIMEOUT,
+            MockPaymentGateway.LookupOutcome.UNKNOWN);
         mvc.perform(auth(post("/api/holds/{id}/checkout",hold).header("Idempotency-Key","pending-admin-key")
-            .contentType(MediaType.APPLICATION_JSON).content("{\"paymentOutcome\":\"TIMEOUT\",\"lookupOutcome\":\"UNKNOWN\"}"),CUSTOMER))
+            .contentType(MediaType.APPLICATION_JSON).content("{}"),CUSTOMER))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.state").value("PAYMENT_UNKNOWN"));
         mvc.perform(auth(post("/api/admin/events/{id}/cancel",f.event()).contentType(MediaType.APPLICATION_JSON)
-            .content("{\"reason\":\"cannot yet\",\"refundOutcome\":\"SUCCESS\"}"),ADMIN))
+            .content("{\"reason\":\"cannot yet\"}"),ADMIN))
             .andExpect(status().isConflict()).andExpect(jsonPath("$.error.code").value("EVENT_PAYMENT_PENDING"));
         assertThat(jdbc.sql("SELECT state FROM event WHERE id=:id").param("id",f.event()).query(String.class).single()).isEqualTo("ON_SALE");
         assertThat(count("admin_audit")).isZero();
@@ -212,11 +217,11 @@ class AdminIntegrationTest {
     private MockHttpServletRequestBuilder customerCancel(Confirmed f,String key,String token){return auth(
         post("/api/bookings/{id}/cancellations",f.booking()).header("Idempotency-Key",key)
             .contentType(MediaType.APPLICATION_JSON).content("{\"ticketIds\":[\""+f.tickets().getFirst()+
-                "\"],\"refundOutcome\":\"SUCCESS\"}"),token);}
+                "\"]}"),token);}
     private MockHttpServletRequestBuilder exceptional(UUID booking,UUID ticket,String key,String token){return auth(
         post("/api/admin/bookings/{id}/refunds",booking).header("Idempotency-Key",key)
             .contentType(MediaType.APPLICATION_JSON).content("{\"ticketIds\":[\""+ticket+
-                "\"],\"reason\":\"goodwill\",\"refundOutcome\":\"SUCCESS\"}"),token);}
+                "\"],\"reason\":\"goodwill\"}"),token);}
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request,String token){return request.header(HttpHeaders.AUTHORIZATION,"Bearer "+token);}
 
     private Fixture event(Instant starts){UUID venue=UUID.randomUUID(),section=UUID.randomUUID(),event=UUID.randomUUID();

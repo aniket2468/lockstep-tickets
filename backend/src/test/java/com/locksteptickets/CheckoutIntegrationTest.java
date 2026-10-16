@@ -39,6 +39,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
+import com.locksteptickets.checkout.MockPaymentGateway;
 
 @SpringBootTest(classes = CheckoutIntegrationTest.FixedClockConfiguration.class)
 @Testcontainers
@@ -54,6 +55,7 @@ class CheckoutIntegrationTest {
 
     @Autowired JdbcClient jdbc;
     @Autowired WebApplicationContext context;
+    @Autowired MockPaymentGateway gateway;
     private MockMvc mvc;
     private UUID customerOne;
     private UUID customerTwo;
@@ -61,6 +63,7 @@ class CheckoutIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         mvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
+        gateway.clearSimulations();
         for (String table : new String[]{"outbox_event", "promo_redemption", "payment_attempt",
             "ticket", "booking", "seat_hold_item", "seat_hold", "customer_event_limit",
             "promo_code", "event_seat", "price_tier", "event", "seat", "section", "venue",
@@ -101,7 +104,7 @@ class CheckoutIntegrationTest {
     }
 
     @Test
-    void declineReleasesSeatAndIdempotencyRejectsChangedPayload() throws Exception {
+    void declineReleasesSeatAndIdempotentReplayReturnsOriginalResult() throws Exception {
         Fixture fixture = event(0, 0, null, 0);
         UUID target = seat(fixture, "1", 5000, 0);
         UUID hold = hold(fixture.eventId(), target, null, null);
@@ -109,8 +112,7 @@ class CheckoutIntegrationTest {
         mvc.perform(checkout(hold, "checkout-key-0002", "DECLINE", "UNKNOWN", ONE_TOKEN))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.state").value("PAYMENT_FAILED"));
         mvc.perform(checkout(hold, "checkout-key-0002", "SUCCESS", "UNKNOWN", ONE_TOKEN))
-            .andExpect(status().isConflict())
-            .andExpect(jsonPath("$.error.code").value("IDEMPOTENCY_KEY_REUSED"));
+            .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("PAYMENT_FAILED"));
         assertThat(count("ticket")).isZero();
         assertThat(jdbc.sql("SELECT state FROM seat_hold WHERE id=:id").param("id", hold)
             .query(String.class).single()).isEqualTo("RELEASED");
@@ -263,9 +265,10 @@ class CheckoutIntegrationTest {
 
     private MockHttpServletRequestBuilder checkout(UUID hold, String key, String outcome,
                                                      String lookup, String token) {
+        gateway.simulateOnce(key, MockPaymentGateway.RequestedOutcome.valueOf(outcome),
+            MockPaymentGateway.LookupOutcome.valueOf(lookup));
         return auth(post("/api/holds/{id}/checkout", hold).header("Idempotency-Key", key)
-            .contentType(MediaType.APPLICATION_JSON).content("{\"paymentOutcome\":\"" + outcome
-                + "\",\"lookupOutcome\":\"" + lookup + "\"}"), token);
+            .contentType(MediaType.APPLICATION_JSON).content("{}"), token);
     }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request, String token) {

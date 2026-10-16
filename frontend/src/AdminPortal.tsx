@@ -12,15 +12,13 @@ import {
   getOccupancyReport,
   getSalesReport,
   listEvents,
-  LookupOutcome,
   mutateSeat,
   OccupancyReport,
-  PaymentOutcome,
   promoteWaitlist,
   rescheduleEvent,
   SalesReport,
 } from './api'
-import { ErrorPanel, Loading, OutcomeFields, StatusBadge, SuccessPanel } from './ui'
+import { ErrorPanel, Loading, StatusBadge, SuccessPanel } from './ui'
 import { errorMessage, formText, formatDate, formatMinor, isAbort, newIdempotencyKey } from './utils'
 
 type Props = { token: string; onLogout: () => void }
@@ -167,11 +165,10 @@ function EventOperations({ token, onLogout }: Props) {
               <button type="submit" disabled={busy}>{busy ? 'Promoting once…' : 'Promote next eligible entry'}</button>
             </form>
 
-            <form className="action-card danger-zone" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); void operation('Event cancellation completed and audited.', () => cancelEvent(token, detail.id, reason(event.currentTarget), formText(data, 'cancelOutcome') as PaymentOutcome, formText(data, 'cancelLookup') as LookupOutcome)) }}>
+            <form className="action-card danger-zone" onSubmit={(event) => { event.preventDefault(); void operation('Event cancellation completed and audited.', () => cancelEvent(token, detail.id, reason(event.currentTarget))) }}>
               <h2>Cancel event</h2>
               <p>This closes sales and attempts full refunds, including allocated fees.</p>
               <ReasonInput id="cancel-reason" />
-              <OutcomeFields prefix="cancel" />
               <button className="danger" type="submit" disabled={busy}>{busy ? 'Cancelling once…' : 'Cancel event'}</button>
             </form>
           </div>
@@ -227,8 +224,7 @@ function ExceptionalRefund({ token, onLogout }: Props) {
     const ticketIds = formText(data, 'ticketIds').split(',').map((value) => value.trim()).filter(Boolean)
     try {
       const result = await exceptionalRefund(token, formText(data, 'bookingId').trim(), ticketIds, key,
-        formText(data, 'reason').trim(), formText(data, 'adminRefundOutcome') as PaymentOutcome,
-        formText(data, 'adminRefundLookup') as LookupOutcome)
+        formText(data, 'reason').trim())
       setSuccess(`Exceptional refund is ${result.state.toLowerCase().replaceAll('_', ' ')}.`)
       setKey(newIdempotencyKey())
       event.currentTarget.reset()
@@ -248,7 +244,6 @@ function ExceptionalRefund({ token, onLogout }: Props) {
         <label htmlFor="booking-id">Booking ID</label><input id="booking-id" name="bookingId" required />
         <label htmlFor="ticket-ids">Ticket IDs, comma separated</label><textarea id="ticket-ids" name="ticketIds" rows={3} required />
         <ReasonInput id="refund-reason" />
-        <OutcomeFields prefix="adminRefund" />
         <button className="danger" type="submit" disabled={busy}>{busy ? 'Submitting once…' : 'Issue exceptional refund'}</button>
       </form>
     </section>

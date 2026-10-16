@@ -25,10 +25,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class AdminService {
     private final AdminRepository repository;
     private final RefundService refunds;
+    private final MockPaymentGateway gateway;
     private final TransactionTemplate transactions;
     private final Clock clock;
-    AdminService(AdminRepository repository,RefundService refunds,TransactionTemplate transactions,Clock clock){
-        this.repository=repository;this.refunds=refunds;this.transactions=transactions;this.clock=clock;}
+    AdminService(AdminRepository repository,RefundService refunds,MockPaymentGateway gateway,
+                 TransactionTemplate transactions,Clock clock){
+        this.repository=repository;this.refunds=refunds;this.gateway=gateway;
+        this.transactions=transactions;this.clock=clock;}
 
     public SeatResponse block(UUID eventId,UUID seatId,String rawReason,AuthenticatedAccount actor){
         return seatState(eventId,seatId,"BLOCKED","SEAT_BLOCKED",rawReason,actor);}
@@ -63,10 +66,10 @@ public class AdminService {
             return new RescheduleResponse(eventId,event.state(),event.startsAt(),startsAt,now.plusSeconds(14*24*3600L));});
     }
 
-    public CancellationResponse cancel(UUID eventId,String rawReason,
-                                       MockPaymentGateway.RequestedOutcome requested,
-                                       MockPaymentGateway.LookupOutcome lookup,AuthenticatedAccount actor){
+    public CancellationResponse cancel(UUID eventId,String rawReason,AuthenticatedAccount actor){
         requireAdmin(actor);String reason=reason(rawReason);
+        var scenario=gateway.scenarioFor("event-cancel-"+eventId);
+        var requested=scenario.requested();var lookup=scenario.lookup();
         PreparedCancellation prepared=transactions.execute(status->prepareCancellation(
             eventId,reason,requested,lookup,actor.accountId()));
         var results=new ArrayList<RefundService.RefundResponse>();
@@ -102,9 +105,10 @@ public class AdminService {
     }
 
     public ExceptionalResult exceptional(UUID bookingId,List<UUID> requestedIds,String rawKey,String rawReason,
-                                         MockPaymentGateway.RequestedOutcome requested,
-                                         MockPaymentGateway.LookupOutcome lookup,AuthenticatedAccount actor){
+                                         AuthenticatedAccount actor){
         requireAdmin(actor);String reason=reason(rawReason),key=key(rawKey);List<UUID> ids=ids(requestedIds);
+        var scenario=gateway.scenarioFor(key);
+        var requested=scenario.requested();var lookup=scenario.lookup();
         byte[] fp=fingerprint("EXCEPTIONAL",bookingId,ids);
         PreparedRefund prepared=transactions.execute(status->prepareExceptional(
             bookingId,ids,key,fp,reason,requested,lookup,actor.accountId()));
