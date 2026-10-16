@@ -2,6 +2,7 @@ package com.locksteptickets.api;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import com.locksteptickets.hold.HoldRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -47,6 +48,14 @@ public class ApiExceptionHandler {
     ) {
         return error(HttpStatus.NOT_FOUND, "RESOURCE_NOT_FOUND",
             "The requested resource was not found.", request);
+    }
+
+    @ExceptionHandler(HoldRejectedException.class)
+    ResponseEntity<ApiError> holdRejected(
+        HoldRejectedException exception,
+        HttpServletRequest request
+    ) {
+        return error(exception.status(), exception.code(), exception.getMessage(), request);
     }
 
     private ResponseEntity<ApiError> error(

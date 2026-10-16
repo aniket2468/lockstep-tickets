@@ -1,6 +1,7 @@
 package com.locksteptickets.catalog;
 
 import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 
@@ -12,9 +13,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class CatalogService {
 
     private final CatalogRepository catalogRepository;
+    private final Clock clock;
 
-    public CatalogService(CatalogRepository catalogRepository) {
+    public CatalogService(CatalogRepository catalogRepository, Clock clock) {
         this.catalogRepository = catalogRepository;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -34,7 +37,7 @@ public class CatalogService {
         CatalogRepository.EventSummaryRow event = catalogRepository.findEvent(eventId)
             .orElseThrow(ResourceNotFoundException::new);
         boolean onSale = "ON_SALE".equals(event.state());
-        List<Seat> seats = catalogRepository.findSeats(eventId).stream()
+        List<Seat> seats = catalogRepository.findSeats(eventId, clock.instant()).stream()
             .map(row -> Seat.from(row, onSale))
             .toList();
         return EventDetail.from(event, seats);
@@ -119,6 +122,7 @@ public class CatalogService {
     ) {
         static Seat from(CatalogRepository.EventSeatRow row, boolean eventOnSale) {
             String availability = eventOnSale && "AVAILABLE".equals(row.inventoryState())
+                && !row.activelyHeld()
                 ? "AVAILABLE"
                 : "UNAVAILABLE";
             return new Seat(

@@ -65,11 +65,11 @@ class PostgresMigrationIntegrationTest {
             assertThat(result.getString(1)).isEqualTo(POSTGRES.getDatabaseName());
         }
 
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
     }
 
     @Test
-    void upgradesAnExistingV1SchemaToV2() {
+    void upgradesAnExistingV1SchemaToLatest() {
         Flyway baseline = Flyway.configure()
             .dataSource(dataSource)
             .schemas("lockstep_upgrade")
@@ -87,7 +87,7 @@ class PostgresMigrationIntegrationTest {
             .createSchemas(true)
             .load();
         upgrade.migrate();
-        assertThat(upgrade.info().current().getVersion().getVersion()).isEqualTo("2");
+        assertThat(upgrade.info().current().getVersion().getVersion()).isEqualTo("3");
     }
 
     @Test

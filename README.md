@@ -2,9 +2,9 @@
 
 Lockstep Tickets is a correctness-first assigned-seat booking system built with
 Spring Boot, React, and PostgreSQL. The current checkpoint includes a secure
-authentication boundary plus authenticated event search and customer-safe seat
-availability. Seat holds and booking workflows follow in later incremental
-commits.
+authentication boundary, authenticated event search, customer-safe seat
+availability, and atomic ten-minute seat holds. Checkout and booking workflows
+follow in later incremental commits.
 
 ## Prerequisites
 
@@ -140,6 +140,11 @@ The Vite development server is available at <http://localhost:5173> and proxies
   Search is literal and bounded, pagination is bounded, retired/draft/internal
   event states are hidden, and seat inventory is exposed only as `AVAILABLE`
   or `UNAVAILABLE` so blocks and ownership details cannot leak.
+- `POST /api/events/{eventId}/holds` accepts one to six unique event-seat IDs
+  for customer accounts. Holds use a fixed ten-minute server deadline, permit
+  only one active hold per customer/event, enforce the 12-ticket aggregate
+  limit, and return `409` without partial allocation when any seat is invalid,
+  blocked, or already held.
 - Backend and frontend containers run as non-root with read-only root filesystems.
 
 See [NOTES.md](NOTES.md) for accepted rules and architecture decisions, and

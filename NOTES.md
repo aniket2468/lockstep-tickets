@@ -234,11 +234,11 @@ Refund bands compare elapsed instants to the resolved event-start instant, so a
 
 ## Known Gaps and Evidence Status
 
-The authenticated catalog checkpoint is implemented and its executed evidence
+The atomic hold checkpoint is implemented and its executed evidence
 is recorded in `docs/VERIFICATION.md`. Booking ownership cannot yet be tested
 because booking resources do not exist. Explicit server-side logout,
 session/throttle-row cleanup, production-profile startup guards, a restricted
-production database role, transactional workflows, audit/outbox behavior,
+production database role, checkout/refund workflows, audit/outbox behavior,
 browser end-to-end automation, and backend/container vulnerability scans remain
 release gaps. HTTPS is an edge/deployment responsibility; bearer tokens must
 never cross plaintext or be stored in browser local storage. Concurrency claims
@@ -287,4 +287,12 @@ catalog search, event detail, and seat map flow. Bearer tokens remain in React
 memory only. Six real-PostgreSQL API tests and six frontend behavior tests cover
 the new boundary; the complete backend suite contains 24 tests, 23 of which use
 PostgreSQL 18.6.
+
+For the atomic hold checkpoint, Codex added the V3 hold and customer/event-limit
+schema, event-first and deterministically ordered row locking, a fixed ten-minute
+deadline, lazy expiry, all-or-nothing allocation, and live catalog masking.
+PostgreSQL GiST exclusion prevents overlapping historical seat-claim intervals
+even if application checks regress. Seven hold integration tests include 20
+barrier-coordinated same-seat contention rounds without timing sleeps, exact
+sale-window boundaries, authorization, rollback, expiry reuse, and limit checks.
 

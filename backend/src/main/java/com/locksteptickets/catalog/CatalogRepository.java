@@ -1,6 +1,7 @@
 package com.locksteptickets.catalog;
 
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -84,18 +85,24 @@ public class CatalogRepository {
             .optional();
     }
 
-    public List<EventSeatRow> findSeats(UUID eventId) {
+    public List<EventSeatRow> findSeats(UUID eventId, Instant now) {
         return jdbcClient.sql("""
                 SELECT es.id, es.section_name, es.row_label, es.seat_number,
                        es.accessible, es.inventory_state,
-                       pt.name AS tier_name, pt.price_minor, pt.currency
+                       pt.name AS tier_name, pt.price_minor, pt.currency,
+                       EXISTS (
+                           SELECT 1
+                           FROM seat_hold_item hi JOIN seat_hold h ON h.id = hi.hold_id
+                           WHERE hi.event_seat_id = es.id
+                             AND h.state = 'ACTIVE' AND h.expires_at > :now
+                       ) AS actively_held
                 FROM event_seat es
                 JOIN price_tier pt
                   ON pt.id = es.price_tier_id AND pt.event_id = es.event_id
                 WHERE es.event_id = :eventId
                 ORDER BY es.display_order, es.id
                 """)
-            .param("eventId", eventId)
+            .param("eventId", eventId).param("now", Timestamp.from(now))
             .query((resultSet, rowNumber) -> new EventSeatRow(
                 resultSet.getObject("id", UUID.class),
                 resultSet.getString("section_name"),
@@ -105,7 +112,8 @@ public class CatalogRepository {
                 resultSet.getString("inventory_state"),
                 resultSet.getString("tier_name"),
                 resultSet.getLong("price_minor"),
-                resultSet.getString("currency").strip()))
+                resultSet.getString("currency").strip(),
+                resultSet.getBoolean("actively_held")))
             .list();
     }
 
@@ -132,7 +140,8 @@ public class CatalogRepository {
         String inventoryState,
         String tierName,
         long priceMinor,
-        String currency
+        String currency,
+        boolean activelyHeld
     ) {
     }
 }
