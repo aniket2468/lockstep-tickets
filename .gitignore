@@ -1,0 +1,26 @@
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+
+# Java
+backend/target/
+*.class
+
+# JavaScript
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/*.tsbuildinfo
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Local test and runtime output
+*.log
+test-results/
+playwright-report/
+

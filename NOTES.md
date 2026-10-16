@@ -250,3 +250,12 @@ test evidence, rejected suggestions, and material developer corrections will
 be appended here as work proceeds. No AI-authored result is represented as
 independently verified merely because it was generated.
 
+For the project-foundation checkpoint, Codex also drafted the Spring Boot,
+React, PostgreSQL, Flyway, Testcontainers, Docker Compose, and security baseline;
+queried official/current package information; generated lockfiles/wrappers; and
+ran the commands recorded in `docs/VERIFICATION.md`. Generated suggestions were
+corrected when execution exposed a TypeScript/tooling peer conflict, Spring Boot
+4 module changes, PostgreSQL 18 volume semantics, and a local port collision.
+No peer-dependency check or failed test was bypassed. The developer is expected
+to review the resulting files and rerun the documented gates before committing.
+
