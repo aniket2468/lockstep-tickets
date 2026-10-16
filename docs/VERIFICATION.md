@@ -31,12 +31,13 @@ server image/version will be recorded when the local environment is created.
 | Authorization/horizontal access | PASS | Checkout, refund, admin, waitlist, and report integration cases | Unrelated customers receive safe `404` for owned resources, customers receive `403` on admin/report operations, and rejected requests create no success audit |
 | Failure injection/recovery | NOT RUN | Success/decline/timeout/unknown and lookup pass | Process/database interruption injection and scheduled recovery worker remain unproved |
 | Audit atomicity/cardinality | PASS | Admin/waitlist PostgreSQL integration tests and V6 triggers | Successful overrides/promotions created one audit row; rejected operations created none; database triggers rejected audit update and delete; event/inventory/waitlist outbox writes share their operation transaction |
-| Frontend tests | PASS | `npm test -- --run` on 2026-10-15 | 1 file and 6 tests passed with Vitest 5.0.5; covered login errors, in-memory token handling, authenticated fetch, encoded search, availability rendering, and expired sessions |
-| Frontend lint | PASS | `npm run lint` on 2026-10-15 | ESLint completed with zero warnings |
-| Frontend production build | PASS | `npm run build` on 2026-10-15 | TypeScript and Vite production build completed; 17 modules transformed |
-| Browser end-to-end tests | NOT RUN | — | Workflows not created |
+| Frontend workflow tests | PASS | `npm test -- --run` on 2026-10-16 | 1 file and 11 tests passed with Vitest 5.0.5; covered role routing, memory-only tokens, stable errors, 401 logout, encoded/stale search, seat selection, server quotes, idempotency headers, sold-out waitlisting, booking cancellation, offer claim, admin reports/override, explicit-offset time validation, and audit output |
+| Frontend stale-response protection | PASS | Controlled unresolved-search test with two successive queries | The first request's `AbortSignal` became aborted, the newer empty result rendered, and the stale promise could not replace it |
+| Frontend lint | PASS | `npm run lint` on 2026-10-16 | Type-aware ESLint completed with zero warnings; unsafe form-value coercion and effect-triggered state resets were corrected rather than suppressed |
+| Frontend production build | PASS | `npm run build` on 2026-10-16 | TypeScript 6 and Vite 8 production build completed; 21 modules transformed |
+| Browser workflow tests | PASS | `npm run test:e2e` using Playwright 1.64.1 and local Chrome on 2026-10-16 | 2 tests passed: an accessible customer seat-to-confirmation flow and a 390×844 admin reconciled-report flow; API responses were deterministically browser-mocked, so live-backend browser E2E remains a separate gap |
 | Reconciliation assertions | PASS | Payment and refund timeout-to-success lookup integration cases | Pending inventory remained unavailable; payment reconciliation created exactly one ticket, refund reconciliation released exactly one seat, and foreign reconciliation was hidden |
-| Frontend dependency audit | PASS | `npm ci` on host and in container build | 233 runtime/development packages audited; 0 vulnerabilities reported |
+| Frontend dependency audit | PASS | Playwright dependency install plus container `npm ci` | 236 runtime/development packages audited; npm reported 0 vulnerabilities |
 | Backend dependency vulnerability scan | NOT RUN | — | Dedicated CVE scanner not run yet |
 | Container image scan | NOT RUN | — | Images build successfully; dedicated image scanner not run yet |
 | Container runtime hardening | PASS | `docker compose exec ... id` and `docker inspect` on 2026-10-15 | Backend UID 100 and frontend UID 101; both root filesystems read-only |
@@ -52,6 +53,21 @@ The project is **not fully verified** while any release-blocking gate remains
 ## Resolved Failure History
 
 Failures remain recorded here even after their regression gates pass:
+
+- The first checkpoint-10 lint run rejected implicit `FormData` object
+  stringification and synchronous loading resets inside effects. Typed form
+  extraction and user-initiated state transitions replaced both patterns; no
+  lint rule was disabled. The original six catalog-era tests also omitted the
+  now-required account role and correctly failed closed until their fixtures
+  were updated and expanded to eleven workflow tests.
+- The first Playwright customer assertion retained a locator whose accessible
+  name changed from `available` to `selected` after activation. The test now
+  re-locates the selected state and preserves the intentional accessible-name
+  transition; both Chrome workflows pass.
+- The first combined frontend gate let Vitest discover the Playwright spec;
+  Playwright itself passed, but Vitest correctly failed on the foreign test
+  runtime. Vitest discovery is now explicitly limited to `src/**/*.test.tsx`
+  (and `.ts`), keeping the component and browser runners isolated.
 
 - Waitlist counter review exposed an older hold-path bug: a refreshed combined
   active-plus-confirmed total was written back into the active-hold column,

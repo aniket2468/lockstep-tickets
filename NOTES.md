@@ -241,8 +241,11 @@ this scoped release; background promotion and notification delivery remain
 deferred. Minimal venue/section/seat/event/price/promo CRUD beyond the required
 override flows remains deferred. Explicit server-side logout,
 session/throttle-row cleanup, production-profile startup guards, a restricted
-production database role, browser end-to-end automation, and backend/container
-vulnerability scans remain release gaps. Checkout currently provides customer-triggered reconciliation;
+production database role, browser automation against a live backend, and
+backend/container vulnerability scans remain release gaps. Two deterministic
+Chrome workflows cover the customer purchase and responsive admin-report UI
+with mocked API responses. Checkout currently provides customer-triggered
+reconciliation;
 the scheduled recovery worker and compensating-refund path for an unrecoverable
 post-payment inventory inconsistency remain future work. HTTPS is an
 edge/deployment responsibility; bearer tokens must
@@ -353,4 +356,21 @@ cleanup, and exact money/seat reconciliation. The work also corrected an older
 customer-limit counter assignment that double-counted confirmed tickets when a
 new hold was created. Failed assertions and their corrections remain recorded
 in the verification ledger.
+
+For the customer/admin workflow checkpoint, Codex replaced the catalog-only UI
+with role-aware customer and administrator workspaces. Customer flows cover
+seat selection, server-priced holds, idempotent checkout, owned bookings,
+selected-ticket cancellation and refund recovery, and waitlist enrollment,
+claim, and cancellation. Admin flows cover the implemented seat/event
+overrides, explicit-offset rescheduling, event cancellation, waitlist
+promotion, exceptional refunds, reconciled reports, and audit reads. Reads use
+abort signals so stale responses cannot replace newer state; mutations expose
+busy states and reuse an idempotency key where the API requires one. Eleven
+Vitest/Testing Library scenarios exercise the security and workflow boundary.
+Two Playwright/Chrome scenarios exercise the customer purchase workflow and a
+narrow-viewport admin report in a real browser with deterministic mocked API
+responses; they are not represented as live-backend E2E coverage.
+The first lint run rejected unsafe form coercion and effect state resets, and
+the older test fixtures failed closed when they omitted the newly required
+role; both corrections are retained in the verification ledger.
 

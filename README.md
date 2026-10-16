@@ -10,11 +10,15 @@ or selected-ticket customer cancellation with idempotent mock refunds. Admins
 can block/release seats, reschedule/cancel events, issue exceptional refunds,
 inspect an append-only audit trail, promote FIFO waitlist offers, and read
 transactionally reconciled sales and occupancy reports.
+The responsive role-aware interface now exposes the implemented customer and
+administrator workflows with explicit loading, empty, error, retry, and busy
+states while preserving server authority over inventory, money, and roles.
 
 ## Prerequisites
 
 - Docker 29+ with Docker Compose 5+
 - For host-side development: Java 21 and Node.js 22.12+
+- Google Chrome for the host-side Playwright workflow tests
 
 No local PostgreSQL installation is required. Development credentials in
 `compose.yaml` are intentionally local-only and must not be reused in a shared
@@ -28,7 +32,7 @@ docker compose up --build
 
 Wait for the database to become healthy and the backend to start, then open:
 
-- Customer UI: <http://localhost:3000>
+- Customer and admin UI: <http://localhost:3000>
 - Backend health: <http://localhost:8081/actuator/health>
 
 The expected health status is `UP`. Application routes require a database-backed
@@ -65,10 +69,14 @@ Demo initialization is insert-only and refuses identity collisions. To change
 a demo password, delete only the disposable local volume and recreate it; demo
 mode never resets, reactivates, or changes the role of an existing account.
 
-The customer UI provides the same sign-in flow, event-name search, event
-details, and seat map at <http://localhost:3000>. It deliberately keeps the
-access token only in memory, so refreshing or closing the page signs the user
-out locally.
+The role-aware UI provides customer event search, accessible seat selection,
+server-priced holds, idempotent mock checkout, booking/ticket cancellation,
+refund reconciliation/retry, and waitlist join/claim/cancel workflows. Admins
+can run supported seat/event overrides, promote the waitlist, inspect reconciled
+reports, issue exceptional refunds, and read the audit trail. Superseded reads
+are aborted, mutations have visible busy states, and error responses include
+safe request references. The access token remains only in memory, so refreshing
+or closing the page signs the user out locally.
 
 Stop the application while preserving local database data:
 
@@ -117,6 +125,7 @@ Hibernate automatic schema creation is not used.
 cd frontend
 npm ci
 npm test -- --run
+npm run test:e2e
 npm run lint
 npm run build
 npm run dev
