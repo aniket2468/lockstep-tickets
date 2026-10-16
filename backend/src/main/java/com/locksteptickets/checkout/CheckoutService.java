@@ -5,6 +5,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import com.locksteptickets.api.ResourceNotFoundException;
@@ -62,7 +63,7 @@ public class CheckoutService {
         requireCustomer(account);
         CheckoutRepository.BookingRow visible = repository.findOwnedBooking(bookingId, account.accountId())
             .orElseThrow(ResourceNotFoundException::new);
-        if ("CONFIRMED".equals(visible.state()) || "PAYMENT_FAILED".equals(visible.state())) {
+        if (isTerminalBooking(visible.state())) {
             return response(visible);
         }
         String paymentState = repository.paymentState(bookingId);
@@ -158,7 +159,7 @@ public class CheckoutService {
             repository.lockPromo(hold.promoId());
         }
         CheckoutRepository.BookingRow booking = repository.lockBooking(initial.id());
-        if ("CONFIRMED".equals(booking.state()) || "PAYMENT_FAILED".equals(booking.state())) {
+        if (isTerminalBooking(booking.state())) {
             return booking;
         }
         Instant now = clock.instant();
@@ -171,7 +172,7 @@ public class CheckoutService {
     }
 
     private CheckoutRepository.BookingRow resume(CheckoutRepository.BookingRow booking) {
-        if ("CONFIRMED".equals(booking.state()) || "PAYMENT_FAILED".equals(booking.state())) {
+        if (isTerminalBooking(booking.state())) {
             return booking;
         }
         return switch (repository.paymentState(booking.id())) {
@@ -189,6 +190,11 @@ public class CheckoutService {
             case "DECLINED" -> MockPaymentGateway.ObservedOutcome.DECLINE;
             default -> MockPaymentGateway.ObservedOutcome.UNKNOWN;
         };
+    }
+
+    private boolean isTerminalBooking(String state) {
+        return List.of("CONFIRMED", "PAYMENT_FAILED", "PARTIALLY_REFUNDED", "REFUNDED")
+            .contains(state);
     }
 
     private void validateQuote(CheckoutRepository.HoldRow hold,

@@ -90,13 +90,17 @@ public class CatalogRepository {
                 SELECT es.id, es.section_name, es.row_label, es.seat_number,
                        es.accessible, es.inventory_state,
                        pt.name AS tier_name, pt.price_minor, pt.currency,
-                       EXISTS (
+                       (EXISTS (
                            SELECT 1
                            FROM seat_hold_item hi JOIN seat_hold h ON h.id = hi.hold_id
                            WHERE hi.event_seat_id = es.id
                              AND ((h.state = 'ACTIVE' AND h.expires_at > :now)
                                OR h.state = 'PAYMENT_PENDING')
-                       ) AS actively_held
+                       ) OR EXISTS (
+                           SELECT 1 FROM ticket t
+                           WHERE t.event_seat_id = es.id
+                             AND t.state IN ('CONFIRMED', 'CANCELLATION_PENDING')
+                       )) AS actively_held
                 FROM event_seat es
                 JOIN price_tier pt
                   ON pt.id = es.price_tier_id AND pt.event_id = es.event_id

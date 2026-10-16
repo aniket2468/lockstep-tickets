@@ -5,7 +5,8 @@ Spring Boot, React, and PostgreSQL. The current checkpoint includes a secure
 authentication boundary, authenticated event search, customer-safe seat
 availability, and atomic ten-minute seat holds. Checkout and booking workflows
 now include immutable pricing, constrained promo codes, idempotent mock payment,
-payment-pending inventory protection, and customer-owned reconciliation.
+payment-pending inventory protection, customer-owned reconciliation, and full
+or selected-ticket customer cancellation with idempotent mock refunds.
 
 ## Prerequisites
 
@@ -158,6 +159,16 @@ The Vite development server is available at <http://localhost:5173> and proxies
 - Payment calls occur without database row locks. Unknown payments retain
   explicit payment-pending inventory; success creates immutable charged ticket
   components and one transactional outbox event, while decline releases seats.
+- `GET /api/bookings` and `GET /api/bookings/{bookingId}` expose only the
+  authenticated customer's bookings. `POST /api/bookings/{bookingId}/cancellations`
+  accepts one to six unique ticket IDs and an idempotency key. Customer refunds
+  are 100% at least seven days before the event, 50% from exactly 48 hours to
+  seven days, and 0% below 48 hours; the per-order service fee is excluded.
+- Refund provider calls also occur without database row locks. A timeout or
+  unknown result keeps tickets in `CANCELLATION_PENDING` and unavailable until
+  customer-owned reconciliation succeeds. Declined refunds can be retried with
+  the original key, while row locks and persisted refund items prevent duplicate
+  or concurrent over-refunds.
 - Backend and frontend containers run as non-root with read-only root filesystems.
 
 See [NOTES.md](NOTES.md) for accepted rules and architecture decisions, and

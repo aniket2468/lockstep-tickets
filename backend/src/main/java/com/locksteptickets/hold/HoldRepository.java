@@ -124,6 +124,10 @@ public class HoldRepository {
                     WHERE i.event_seat_id IN (:seatIds)
                       AND ((h.state = 'ACTIVE' AND h.expires_at > :now)
                         OR h.state = 'PAYMENT_PENDING')
+                ) OR EXISTS (
+                    SELECT 1 FROM ticket t
+                    WHERE t.event_seat_id IN (:seatIds)
+                      AND t.state IN ('CONFIRMED', 'CANCELLATION_PENDING')
                 )
                 """)
             .param("seatIds", seatIds).param("now", Timestamp.from(now))

@@ -1,6 +1,6 @@
 # Lockstep Tickets — Engineering Notes
 
-Last updated: 2026-10-15
+Last updated: 2026-10-16
 
 This document is the durable decision log for the assignment. It distinguishes
 accepted requirements, implementation choices, and work that has not yet been
@@ -234,10 +234,12 @@ Refund bands compare elapsed instants to the resolved event-start instant, so a
 
 ## Known Gaps and Evidence Status
 
-The immutable-pricing and idempotent-checkout checkpoint is implemented and its
-executed evidence is recorded in `docs/VERIFICATION.md`. Explicit server-side logout,
+Customer cancellation and refund reconciliation are implemented and their
+executed evidence is recorded in `docs/VERIFICATION.md`. Event-cancellation,
+reschedule-window, and authorized exceptional refunds remain part of the admin
+checkpoint. Explicit server-side logout,
 session/throttle-row cleanup, production-profile startup guards, a restricted
-production database role, refund workflows, admin audit behavior,
+production database role, admin audit behavior,
 browser end-to-end automation, and backend/container vulnerability scans remain
 release gaps. Checkout currently provides customer-triggered reconciliation;
 the scheduled recovery worker and compensating-refund path for an unrecoverable
@@ -307,4 +309,15 @@ tests cover immutable snapshots, replay safety, expiry and ownership boundaries,
 strict request binding, ambiguous-payment reconciliation, and a coordinated
 last-promo-use race. Provider observations are committed separately from final
 booking state so a retry or reconciliation can resume without charging twice.
+
+For the customer cancellation checkpoint, Codex added V5 refund and attempt
+persistence, owned booking views, selected-ticket cancellation, exact instant
+refund bands, non-refundable customer service fees, provider outcome
+reconciliation, and explicit retry after a decline. Unknown and failed refunds
+keep inventory protected until success. Six PostgreSQL integration tests and
+two pure policy tests cover ownership, replay and changed-payload behavior,
+partial cancellation, exact 7-day/48-hour and DST-crossing boundaries, fee
+exclusion, decline/retry, timeout/reconciliation, and coordinated concurrent
+over-refund prevention. The work also corrected an earlier inventory query so
+confirmed and cancellation-pending tickets cannot be held or shown available.
 
