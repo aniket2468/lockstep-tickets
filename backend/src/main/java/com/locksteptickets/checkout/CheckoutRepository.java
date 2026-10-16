@@ -44,6 +44,26 @@ class CheckoutRepository {
             .param("id", bookingId).param("accountId", accountId).query(this::mapBooking).optional();
     }
 
+    Optional<BookingRow> findBooking(UUID bookingId) {
+        return jdbc.sql(BOOKING_SELECT + " WHERE b.id = :id")
+            .param("id", bookingId).query(this::mapBooking).optional();
+    }
+
+    List<UUID> findReconciliationCandidates(Instant cutoff, int limit) {
+        return jdbc.sql("""
+                SELECT b.id
+                FROM booking b
+                JOIN payment_attempt p ON p.booking_id = b.id
+                WHERE b.state IN ('PAYMENT_PENDING', 'PAYMENT_UNKNOWN')
+                  AND p.updated_at <= :cutoff
+                ORDER BY p.updated_at, b.id
+                LIMIT :limit
+                """)
+            .param("cutoff", Timestamp.from(cutoff))
+            .param("limit", limit)
+            .query(UUID.class).list();
+    }
+
     Optional<UUID> accountIdForBooking(UUID bookingId) {
         return jdbc.sql("SELECT account_id FROM booking WHERE id = :id")
             .param("id", bookingId).query(UUID.class).optional();

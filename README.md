@@ -13,8 +13,9 @@ money is stored as integer minor units.
 - Admin flows: block or release seats, cancel or reschedule events, issue
   exceptional refunds, review sales reports, and inspect the audit trail.
 - Reliability controls: PostgreSQL row locks and constraints, idempotency keys,
-  explicit payment and refund states, exact integer allocation, and tests that
-  race concurrent requests against a real PostgreSQL database.
+  explicit payment and refund states, automatic recovery of uncertain payments,
+  exact integer allocation, and tests that race concurrent requests against a
+  real PostgreSQL database.
 
 ## Quick start with Docker
 
@@ -99,7 +100,7 @@ npm run build
 npm run test:e2e
 ```
 
-The current verification baseline is 77 backend tests, 11 frontend unit tests,
+The current verification baseline is 78 backend tests, 11 frontend unit tests,
 and 2 browser tests. The exact commands, results, concurrency scenarios, and
 container scan evidence are recorded in
 [docs/VERIFICATION.md](docs/VERIFICATION.md).
@@ -122,6 +123,7 @@ DB_USERNAME=lockstep_app \
 DB_PASSWORD=replace-with-your-local-password \
 LOCKSTEP_DEMO_CUSTOMER_PASSWORD=replace-with-a-12-character-password \
 LOCKSTEP_DEMO_ADMIN_PASSWORD=replace-with-another-12-character-password \
+LOCKSTEP_PAYMENT_RECONCILIATION_ENABLED=true \
 ./mvnw spring-boot:run
 ```
 

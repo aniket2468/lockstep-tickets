@@ -111,8 +111,10 @@ one-shot provider scenarios directly in-process to prove failure handling.
 
 The mock provider exposes status lookup, and the booking owner can trigger a
 reconciliation endpoint. Provider success confirms the booking once; provider
-failure releases inventory once. A scheduled background reconciler and
-crash-recovery testing are still future work.
+failure releases inventory once. A bounded background worker also checks stale
+pending payments every 30 seconds. It covers both unknown provider results and
+the crash window where a provider result was stored before the booking state was
+finalized. Actual process-kill and database-interruption tests remain future work.
 
 ### 4. Refund failure handling
 
@@ -224,7 +226,7 @@ accounts are disabled by default and require explicit local passwords.
 
 The latest completed baseline is:
 
-- 77 backend tests with no failures, errors, or skips;
+- 78 backend tests with no failures, errors, or skips;
 - 11 frontend unit tests passing;
 - frontend lint and production build passing;
 - 2 Playwright browser scenarios passing;
@@ -242,9 +244,8 @@ commands, dates, results, and scenarios are in
 
 ## Known gaps and next steps
 
-- Add a dedicated many-request race at exactly the 12-seat aggregate boundary.
 - Add process-kill and database-interruption tests around payment and refund
-  reconciliation, plus a scheduled recovery worker.
+  reconciliation.
 - Run browser tests against the live backend and PostgreSQL; current Playwright
   scenarios isolate the UI with controlled API responses.
 - Build generic admin CRUD screens and APIs for venues, layouts, events, price

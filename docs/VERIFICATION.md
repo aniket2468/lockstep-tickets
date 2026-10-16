@@ -13,23 +13,24 @@ server image/version will be recorded when the local environment is created.
 | Accepted rules documented | PASS | Manual comparison to supplied assignment and stakeholder reply on 2026-10-15 | Accepted answers and five required design decisions are recorded in `NOTES.md` |
 | Documentation whitespace check | PASS | `awk '/[[:blank:]]+$/ { ... }' README.md NOTES.md docs/*.md` on 2026-10-16 | Exit code 0; no trailing whitespace |
 | Backend unit tests | PASS | `JAVA_HOME=... mvn test` rerun on 2026-10-16 | 15 unit/policy/security tests passed on Java 21.0.12.1, including trusted-proxy parsing and declared/chunked-style JSON size limits |
-| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 62 integration tests passed against PostgreSQL 18.6; 77 backend tests total with 0 failures, errors, or skips after adding the repeated customer-limit race |
+| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 63 integration tests passed against PostgreSQL 18.6; 78 backend tests total with 0 failures, errors, or skips after adding scheduled payment recovery |
 | Same-seat concurrency repeated | PASS | 20 two-customer rounds coordinated with latches against PostgreSQL | Every round produced exactly one `201`, one `409`, one hold, and one hold item; no timing sleeps |
 | Customer-limit concurrency | PASS | 20 coordinated PostgreSQL races from 10 confirmed tickets with two concurrent two-seat requests | Every round produced exactly one success and one `CUSTOMER_EVENT_LIMIT_EXCEEDED`; the final aggregate remained exactly 12 |
 | Promo-limit concurrency | PASS | Two latch-coordinated checkouts for the final global use | Exactly one checkout returned `201`, one returned `409`, and only one payment attempt/redemption was created |
-| Checkout/payment idempotency | PASS | 7 checkout PostgreSQL integration tests | Concurrent and sequential same-key replay created one attempt/booking; changed payload was rejected; success, decline, timeout, lookup, exact expiry, immutable price, and mass-assignment cases passed |
+| Checkout/payment idempotency | PASS | 8 checkout PostgreSQL integration tests | Concurrent and sequential same-key replay created one attempt/booking; changed payload was rejected; success, decline, timeout, manual and scheduled lookup, exact expiry, immutable price, and mass-assignment cases passed |
 | Refund idempotency/concurrency | PASS | 7 refund PostgreSQL integration tests plus 2 policy tests | Same-key replay made one attempt, changed payload was rejected, and concurrent different-key cancellation produced one `201`, one `409`, and one refund item; customer and reschedule boundaries, ownership, fee exclusion, retry, and reconciliation passed |
 | Admin inventory/event contention | PASS | 9 admin PostgreSQL integration tests | Ten latch-coordinated block-vs-hold rounds always produced one owner; held/sold blocks, draft lifecycle boundaries, unresolved-payment cancellation, invalid reasons, wrong roles, and duplicate operations left no success audit |
 | Waitlist eligibility/concurrency | PASS | 6 waitlist/report PostgreSQL integration tests | Sold-out-only enrollment, section/quantity FIFO, one active entry, 15-minute exact expiry, explicit claim, bypass rejection, 12-ticket skipping, event cancellation, and ten promotion-vs-hold races passed |
 | Reconciled admin reports | PASS | Sales and occupancy integration scenario under repeatable-read transactions | Gross 1100 - succeeded refund 1000 = net 100; all 3 seats reconciled exactly across blocked, offered, and unallocated buckets; customer access was denied |
-| Fresh migration | PASS | Focused and full Testcontainers migration runs | Flyway created `lockstep` and applied V1 through V7 to empty PostgreSQL 18.6 databases |
-| Upgrade migrations | PASS | Testcontainers test first targets V1 in a separate schema, then runs unrestricted Flyway | Flyway detected V1 and applied V2/V3/V4/V5/V6/V7, reaching schema version 7 |
+| Fresh migration | PASS | Focused and full Testcontainers migration runs | Flyway created `lockstep` and applied V1 through V8 to empty PostgreSQL 18.6 databases |
+| Upgrade migrations | PASS | Testcontainers test first targets V1 in a separate schema, then runs unrestricted Flyway | Flyway detected V1 and applied V2 through V8, reaching schema version 8 |
 | Authentication boundary | PASS | 10 MockMvc/PostgreSQL integration tests plus 8 focused filter/resolver tests | Proved login, hashed opaque sessions, expiry, malformed tokens, inactive-account invalidation, generic failures, distinct clients behind a trusted proxy, spoof/malformed chain rejection, account/IP throttling, pre-deserialization 64 KiB JSON limits with and without length, role denial, strict JSON, no-store responses, and request IDs |
 | Authenticated event catalog | PASS | 6 MockMvc/PostgreSQL integration tests | Proved authentication, bounded literal search, deterministic pagination, customer-visible state and retirement filtering, safe 404/validation errors, snapshot seat output, and masking of blocks/internal inventory fields |
 | Atomic seat holds | PASS | 8 MockMvc/PostgreSQL integration tests | Proved customer-only access, one-to-six unique seats, fixed ten-minute expiry, start-inclusive/end-exclusive sales, one active hold, aggregate limit, mixed-request rollback, cross-event rejection, lazy expiry/reuse, live catalog masking, repeated same-seat contention, and repeated customer-limit contention |
 | Database-test fail-closed behavior | PASS | Focused Maven test with Docker socket inaccessible | Maven exited nonzero with 1 Testcontainers error and 0 skipped tests; PostgreSQL coverage can no longer silently disappear |
 | Authorization/horizontal access | PASS | Checkout, refund, admin, waitlist, and report integration cases | Unrelated customers receive safe `404` for owned resources, customers receive `403` on admin/report operations, and rejected requests create no success audit |
-| Failure injection/recovery | NOT RUN | Success/decline/timeout/unknown and lookup pass | Process/database interruption injection and scheduled recovery worker remain unproved |
+| Scheduled payment recovery | PASS | Bounded PostgreSQL integration scenario with stale and fresh attempts | Two-item batches resolved stored-success, lookup-success, and lookup-decline results; unknown remained protected and was deferred; fresh work was ignored |
+| Process/database interruption | NOT RUN | State-level crash window is covered | No test currently kills the application process or interrupts PostgreSQL mid-operation |
 | Audit atomicity/cardinality | PASS | Admin/waitlist PostgreSQL integration tests and V6 triggers | Successful overrides/promotions created one audit row; rejected operations created none; database triggers rejected audit update and delete; event/inventory/waitlist outbox writes share their operation transaction |
 | Frontend workflow tests | PASS | `npm test -- --run` rerun on 2026-10-16 | 1 file and 11 tests passed with Vitest 5.0.5; covered role routing, memory-only tokens, stable errors, 401 logout, encoded/stale search, seat selection, server quotes, idempotency headers, absence of provider-outcome controls, sold-out waitlisting, booking cancellation, offer claim, admin reports/override, explicit-offset time validation, and audit output |
 | Provider simulation boundary | PASS | Strict JSON checkout test plus frontend request assertions on 2026-10-16 | Public customer/admin DTOs no longer accept payment, refund, or lookup outcomes; normal calls use internal success and failure scenarios are registered only inside integration tests |
@@ -44,18 +45,24 @@ server image/version will be recorded when the local environment is created.
 | Container image scan | PASS | Trivy 0.74.0 against exported rebuilt frontend image on 2026-10-16; same gate | Alpine 3.23.4: 0. Initial scan found and blocked 43 HIGH findings before runtime package upgrades |
 | Container runtime hardening | PASS | `docker compose exec ... id` and `docker inspect` on 2026-10-16 | Backend UID 100 and frontend UID 101; both root filesystems read-only |
 | Live health and frontend headers | PASS | Local `curl` checks on ports 8081 and 3000 on 2026-10-16 | Both health paths were `UP`; CSP/referrer/content-type/frame/permissions headers were present; nginx and direct backend independently rejected a 70 KB login with `413`, and the backend returned the stable redacted error envelope |
-| Docker Compose build and upgrade | PASS | `docker compose up --build --detach` rerun on 2026-10-16 against the preserved volume | Rebuilt backend/frontend images started successfully, Flyway validated schema version 7, backend health was `UP`, and idempotent demo initialization expanded the existing volume to 3 events, 36 event seats, and 2 promos without resetting it |
+| Docker Compose build and upgrade | PASS | `docker compose up --build --detach backend` rerun on 2026-10-16 against the preserved volume | Rebuilt backend started successfully, Flyway upgraded the retained schema from V7 to V8, backend health was `UP`, and the database/frontend containers remained healthy |
 | README clean-run commands | PASS | Commands executed from the new repository on 2026-10-15 | Maven verify, npm install/test/lint/build, Compose build/start, health check, and teardown behavior verified |
 | Catalog/auth runtime smoke test | PASS | Compose rebuild plus local health, UI, and unauthenticated catalog requests on 2026-10-15 | Packaged UI served the expected title, health returned `UP`, and `/api/events` returned the stable `AUTHENTICATION_REQUIRED` envelope with HTTP 401 |
 | Secret-pattern review | PASS | Focused `rg` scan of source on 2026-10-16 | Matches were limited to password variable names, redaction code, and deliberate test-only credentials; no private keys or provider tokens found |
 
-The project is **not fully verified** while any release-blocking gate remains
-`FAIL`, `BLOCKED`, or `NOT RUN`.
+Verification status is intentionally conservative. `NOT RUN` identifies an
+explicitly documented scope or resilience gap and is not a passing result;
+`FAIL` and `BLOCKED` are release blockers.
 
 ## Resolved Failure History
 
 Failures remain recorded here even after their regression gates pass:
 
+- The first scheduler-isolation change added a test `application.yml`, which
+  shadowed rather than merged the main datasource configuration. The full suite
+  failed closed while creating its application contexts. The extra resource was
+  removed; reconciliation is now explicitly enabled by Compose and the focused
+  worker test, while other test contexts keep scheduling disabled.
 - The first frontend rerun after removing provider-outcome controls passed 10
   of 11 tests. One session test asserted the authenticated catalog request
   before React had issued it; the production behavior was correct. The test now

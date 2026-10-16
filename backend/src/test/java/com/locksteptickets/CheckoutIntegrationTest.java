@@ -40,8 +40,15 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import com.locksteptickets.checkout.MockPaymentGateway;
+import com.locksteptickets.checkout.PaymentReconciliationWorker;
 
-@SpringBootTest(classes = CheckoutIntegrationTest.FixedClockConfiguration.class)
+@SpringBootTest(
+    classes = CheckoutIntegrationTest.FixedClockConfiguration.class,
+    properties = {
+        "lockstep.payment-reconciliation.enabled=true",
+        "lockstep.payment-reconciliation.batch-size=2"
+    }
+)
 @Testcontainers
 class CheckoutIntegrationTest {
 
@@ -56,6 +63,7 @@ class CheckoutIntegrationTest {
     @Autowired JdbcClient jdbc;
     @Autowired WebApplicationContext context;
     @Autowired MockPaymentGateway gateway;
+    @Autowired PaymentReconciliationWorker reconciliationWorker;
     private MockMvc mvc;
     private UUID customerOne;
     private UUID customerTwo;
@@ -140,6 +148,52 @@ class CheckoutIntegrationTest {
         mvc.perform(auth(post("/api/bookings/{id}/reconcile", UUID.fromString(bookingId)), ONE_TOKEN))
             .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("CONFIRMED"));
         assertThat(count("ticket")).isEqualTo(1);
+    }
+
+    @Test
+    void scheduledWorkerReconcilesOnlyStalePendingPaymentsInBoundedRuns() throws Exception {
+        UUID durableSuccess = unknownBooking("worker-durable-key", "UNKNOWN");
+        UUID lookupSuccess = unknownBooking("worker-success-key", "SUCCESS");
+        UUID decline = unknownBooking("worker-decline-key", "DECLINE");
+        UUID unknown = unknownBooking("worker-unknown-key", "UNKNOWN");
+        UUID fresh = unknownBooking("worker-fresh-key", "SUCCESS");
+        jdbc.sql("""
+                UPDATE payment_attempt
+                SET updated_at = :stale
+                WHERE booking_id IN (:durableSuccess, :lookupSuccess, :decline, :unknown)
+                """)
+            .param("stale", Timestamp.from(NOW.minusSeconds(31)))
+            .param("durableSuccess", durableSuccess)
+            .param("lookupSuccess", lookupSuccess)
+            .param("decline", decline)
+            .param("unknown", unknown)
+            .update();
+        jdbc.sql("""
+                UPDATE payment_attempt
+                SET state='SUCCEEDED', observed_outcome='SUCCESS'
+                WHERE booking_id=:bookingId
+                """)
+            .param("bookingId", durableSuccess)
+            .update();
+
+        var firstRun = reconciliationWorker.runOnce();
+        var secondRun = reconciliationWorker.runOnce();
+
+        assertThat(firstRun.selected()).isEqualTo(2);
+        assertThat(secondRun.selected()).isEqualTo(2);
+        assertThat(firstRun.resolved() + secondRun.resolved()).isEqualTo(3);
+        assertThat(firstRun.stillPending() + secondRun.stillPending()).isEqualTo(1);
+        assertThat(firstRun.failed() + secondRun.failed()).isZero();
+        assertThat(bookingState(durableSuccess)).isEqualTo("CONFIRMED");
+        assertThat(bookingState(lookupSuccess)).isEqualTo("CONFIRMED");
+        assertThat(bookingState(decline)).isEqualTo("PAYMENT_FAILED");
+        assertThat(bookingState(unknown)).isEqualTo("PAYMENT_UNKNOWN");
+        assertThat(bookingState(fresh)).isEqualTo("PAYMENT_UNKNOWN");
+        assertThat(jdbc.sql("SELECT count(*) FROM ticket WHERE booking_id IN (:one,:two)")
+            .param("one", durableSuccess).param("two", lookupSuccess)
+            .query(Integer.class).single()).isEqualTo(2);
+        assertThat(reconciliationWorker.runOnce())
+            .isEqualTo(new PaymentReconciliationWorker.RunResult(0, 0, 0, 0));
     }
 
     @Test
@@ -245,9 +299,29 @@ class CheckoutIntegrationTest {
         };
     }
 
+    private UUID unknownBooking(String key, String lookup) throws Exception {
+        Fixture fixture = event(0, 0, null, 0);
+        UUID target = seat(fixture, "1", 5000, 0);
+        UUID hold = hold(fixture.eventId(), target, null, null);
+        mvc.perform(checkout(hold, key, "TIMEOUT", lookup, ONE_TOKEN))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.state").value("PAYMENT_UNKNOWN"));
+        return jdbc.sql("SELECT id FROM booking WHERE checkout_key=:key")
+            .param("key", key).query(UUID.class).single();
+    }
+
+    private String bookingState(UUID bookingId) {
+        return jdbc.sql("SELECT state FROM booking WHERE id=:id")
+            .param("id", bookingId).query(String.class).single();
+    }
+
     private UUID hold(UUID eventId, UUID first, UUID second, String promo) throws Exception {
         mvc.perform(createHold(eventId, first, second, promo, ONE_TOKEN)).andExpect(status().isCreated());
-        return jdbc.sql("SELECT id FROM seat_hold ORDER BY created_at DESC, id DESC LIMIT 1")
+        return jdbc.sql("""
+                SELECT id FROM seat_hold
+                WHERE event_id=:eventId AND account_id=:accountId AND state='ACTIVE'
+                """)
+            .param("eventId", eventId).param("accountId", customerOne)
             .query(UUID.class).single();
     }
 

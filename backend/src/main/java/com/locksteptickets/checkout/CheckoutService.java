@@ -64,23 +64,33 @@ public class CheckoutService {
         requireCustomer(account);
         CheckoutRepository.BookingRow visible = repository.findOwnedBooking(bookingId, account.accountId())
             .orElseThrow(ResourceNotFoundException::new);
+        return reconcileExisting(visible);
+    }
+
+    BookingResponse reconcilePending(UUID bookingId) {
+        CheckoutRepository.BookingRow booking = repository.findBooking(bookingId)
+            .orElseThrow(ResourceNotFoundException::new);
+        return reconcileExisting(booking);
+    }
+
+    private BookingResponse reconcileExisting(CheckoutRepository.BookingRow visible) {
         if (isTerminalBooking(visible.state())) {
             return response(visible);
         }
-        String paymentState = repository.paymentState(bookingId);
+        String paymentState = repository.paymentState(visible.id());
         if ("SUCCEEDED".equals(paymentState)) {
             return response(transactions.execute(status -> finalizeOutcome(
-                bookingId, MockPaymentGateway.ObservedOutcome.SUCCESS)));
+                visible.id(), MockPaymentGateway.ObservedOutcome.SUCCESS)));
         }
         if ("DECLINED".equals(paymentState)) {
             return response(transactions.execute(status -> finalizeOutcome(
-                bookingId, MockPaymentGateway.ObservedOutcome.DECLINE)));
+                visible.id(), MockPaymentGateway.ObservedOutcome.DECLINE)));
         }
-        MockPaymentGateway.LookupOutcome configured = repository.lookupOutcome(bookingId);
+        MockPaymentGateway.LookupOutcome configured = repository.lookupOutcome(visible.id());
         MockPaymentGateway.LookupOutcome outcome = gateway.lookup(configured);
         transactions.executeWithoutResult(status ->
-            repository.recordLookup(bookingId, outcome, clock.instant()));
-        return response(transactions.execute(status -> reconcileOutcome(bookingId, outcome)));
+            repository.recordLookup(visible.id(), outcome, clock.instant()));
+        return response(transactions.execute(status -> reconcileOutcome(visible.id(), outcome)));
     }
 
     private Prepared prepare(UUID holdId, String key, byte[] fingerprint,
