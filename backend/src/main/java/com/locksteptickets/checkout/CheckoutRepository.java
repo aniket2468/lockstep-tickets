@@ -49,9 +49,9 @@ class CheckoutRepository {
             .param("id", bookingId).query(UUID.class).optional();
     }
 
-    void lockEvent(UUID eventId) {
-        jdbc.sql("SELECT id FROM event WHERE id = :id FOR UPDATE")
-            .param("id", eventId).query(UUID.class).single();
+    String lockEvent(UUID eventId) {
+        return jdbc.sql("SELECT state FROM event WHERE id = :id FOR UPDATE")
+            .param("id", eventId).query(String.class).single();
     }
 
     void lockLimit(UUID accountId, UUID eventId) {

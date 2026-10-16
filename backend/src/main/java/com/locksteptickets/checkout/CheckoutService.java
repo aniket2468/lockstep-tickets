@@ -92,7 +92,7 @@ public class CheckoutService {
         }
         CheckoutRepository.HoldRow initial = repository.findOwnedHold(holdId, accountId)
             .orElseThrow(ResourceNotFoundException::new);
-        repository.lockEvent(initial.eventId());
+        ensureBookable(repository.lockEvent(initial.eventId()));
         prior = repository.findByKey(accountId, key).orElse(null);
         if (prior != null) {
             verifyFingerprint(prior, fingerprint);
@@ -150,7 +150,7 @@ public class CheckoutService {
     private CheckoutRepository.BookingRow lockAndApply(
         CheckoutRepository.BookingRow initial, MockPaymentGateway.ObservedOutcome outcome
     ) {
-        repository.lockEvent(initial.eventId());
+        ensureBookable(repository.lockEvent(initial.eventId()));
         repository.lockLimit(initial.accountId(), initial.eventId());
         var items = repository.lockItems(initial.holdId());
         CheckoutRepository.HoldRow hold = repository.findOwnedHold(initial.holdId(), initial.accountId())
@@ -195,6 +195,12 @@ public class CheckoutService {
     private boolean isTerminalBooking(String state) {
         return List.of("CONFIRMED", "PAYMENT_FAILED", "PARTIALLY_REFUNDED", "REFUNDED")
             .contains(state);
+    }
+
+    private void ensureBookable(String eventState) {
+        if ("CANCELLED".equals(eventState) || "COMPLETED".equals(eventState)) {
+            throw conflict("EVENT_NOT_BOOKABLE", "The event no longer accepts checkout.");
+        }
     }
 
     private void validateQuote(CheckoutRepository.HoldRow hold,

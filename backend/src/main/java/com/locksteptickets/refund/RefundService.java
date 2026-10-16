@@ -94,13 +94,20 @@ public class RefundService {
             || tickets.size()!=ids.size() || tickets.stream().anyMatch(t->!"CONFIRMED".equals(t.state()))) {
             throw conflict("TICKETS_NOT_CANCELLABLE","One or more tickets cannot be cancelled.");
         }
-        int bps=policy.customerPercentageBps(clock.instant(),booking.startsAt());
+        Instant policyNow=clock.instant();
+        boolean reschedule=booking.refundWindowEndsAt()!=null&&!policyNow.isAfter(booking.refundWindowEndsAt());
+        int bps=reschedule?10_000:policy.customerPercentageBps(policyNow,booking.startsAt());
         long amount=0;
+        long serviceFeeRefund=0;
         for(var ticket:tickets) {
-            amount=Math.addExact(amount,policy.amount(ticket.chargedTotalMinor(),ticket.serviceFeeMinor(),bps));
+            long fee=reschedule?ticket.serviceFeeMinor():0;
+            serviceFeeRefund=Math.addExact(serviceFeeRefund,fee);
+            amount=Math.addExact(amount,Math.addExact(
+                policy.amount(ticket.chargedTotalMinor(),ticket.serviceFeeMinor(),bps),fee));
         }
-        Instant now=clock.instant(); UUID id=repository.createRefund(booking,key,fingerprint,bps,amount,now);
-        repository.addItems(id,tickets,bps); repository.markTicketsPending(ids);
+        Instant now=clock.instant(); UUID id=repository.createRefund(booking,key,fingerprint,
+            reschedule?"RESCHEDULE":"CUSTOMER_CANCELLATION",bps,amount,serviceFeeRefund,now);
+        repository.addItems(id,tickets,bps,reschedule); repository.markTicketsPending(ids);
         int attempt=repository.createAttempt(id,requested,lookup,now);
         return new Prepared(repository.findOwnedRefund(id,accountId).orElseThrow(),attempt,false);
     }
@@ -130,6 +137,14 @@ public class RefundService {
         transactions.executeWithoutResult(s->repository.recordObserved(refund.id(),attempt,observed,clock.instant()));
         String durable=repository.latestAttempt(refund.id()).state();
         return transactions.execute(s->finalizeOutcome(refund.id(),durable));
+    }
+
+    public RefundResponse processPrepared(UUID refundId,MockPaymentGateway.RequestedOutcome requested) {
+        var accountId=accountFor(refundId);
+        var refund=repository.findOwnedRefund(refundId,accountId).orElseThrow(ResourceNotFoundException::new);
+        var attempt=repository.latestAttempt(refundId);
+        if(!"INITIATED".equals(attempt.state())) return response(refund);
+        return response(process(refund,attempt.number(),requested));
     }
 
     private RefundRepository.Refund finalizeOutcome(UUID refundId,String outcome) {

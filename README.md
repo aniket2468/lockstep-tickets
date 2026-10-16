@@ -6,7 +6,9 @@ authentication boundary, authenticated event search, customer-safe seat
 availability, and atomic ten-minute seat holds. Checkout and booking workflows
 now include immutable pricing, constrained promo codes, idempotent mock payment,
 payment-pending inventory protection, customer-owned reconciliation, and full
-or selected-ticket customer cancellation with idempotent mock refunds.
+or selected-ticket customer cancellation with idempotent mock refunds. Admins
+can block/release seats, reschedule/cancel events, issue exceptional refunds,
+and inspect an append-only audit trail.
 
 ## Prerequisites
 
@@ -169,6 +171,16 @@ The Vite development server is available at <http://localhost:5173> and proxies
   customer-owned reconciliation succeeds. Declined refunds can be retried with
   the original key, while row locks and persisted refund items prevent duplicate
   or concurrent over-refunds.
+- `/api/admin/**` requires the `ADMIN` role. Seat block/release, event
+  reschedule/cancellation, and exceptional refund requests require a bounded,
+  non-blank reason. Their business mutation, outbox entry where applicable,
+  and audit record commit atomically; PostgreSQL rejects audit updates/deletes.
+- A block is rejected for held, payment-pending, or sold inventory. Rescheduling
+  preserves bookings and opens a 14-day, end-inclusive full-refund window that
+  includes allocated service fees. Event cancellation rejects unresolved
+  payments, closes sales, restores consumed promo uses, and refunds every
+  remaining charged minor unit exactly once, including prior partially refunded
+  tickets. Mock refund provider calls occur only after the setup transaction.
 - Backend and frontend containers run as non-root with read-only root filesystems.
 
 See [NOTES.md](NOTES.md) for accepted rules and architecture decisions, and

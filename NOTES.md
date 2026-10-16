@@ -234,10 +234,10 @@ Refund bands compare elapsed instants to the resolved event-start instant, so a
 
 ## Known Gaps and Evidence Status
 
-Customer cancellation and refund reconciliation are implemented and their
-executed evidence is recorded in `docs/VERIFICATION.md`. Event-cancellation,
-reschedule-window, and authorized exceptional refunds remain part of the admin
-checkpoint. Explicit server-side logout,
+Audited admin seat operations, rescheduling, event cancellation, and
+exceptional refunds are implemented, with executed evidence in
+`docs/VERIFICATION.md`. Minimal venue/section/seat/event/price/promo CRUD beyond
+these required override flows remains deferred. Explicit server-side logout,
 session/throttle-row cleanup, production-profile startup guards, a restricted
 production database role, admin audit behavior,
 browser end-to-end automation, and backend/container vulnerability scans remain
@@ -320,4 +320,24 @@ partial cancellation, exact 7-day/48-hour and DST-crossing boundaries, fee
 exclusion, decline/retry, timeout/reconciliation, and coordinated concurrent
 over-refund prevention. The work also corrected an earlier inventory query so
 confirmed and cancellation-pending tickets cannot be held or shown available.
+
+For the audited admin checkpoint, Codex added V6 reschedule history and
+append-only audit persistence, role-protected block/release, reschedule,
+event-cancellation, exceptional-refund, and audit APIs, plus outbox records for
+inventory/event changes. Event cancellation refuses unresolved payments,
+restores consumed promos, and creates remaining-balance refunds before any mock
+provider call. A prior partial customer refund is subtracted per ticket so the
+cumulative successful total equals the immutable charge, including fees, and
+does not decrement customer limits twice. Nine PostgreSQL admin tests include
+ten barrier-coordinated block-versus-hold races, concurrent same-key exceptional
+refunds, reason/role rejection with zero audit rows, audit mutation rejection,
+draft lifecycle enforcement, reschedule fee refunds, event cancellation after
+a 50% refund, and pending payment rejection. A seventh refund integration case
+proves the 14-day window is inclusive at its exact end and excludes the fee one
+second later.
+
+Admin-created refunds that receive an unknown result remain protected and can
+be reconciled through the existing owner-visible refund endpoint. A declined
+admin-created refund is persisted without releasing inventory, but a dedicated
+operator retry endpoint and scheduled recovery worker remain deferred work.
 

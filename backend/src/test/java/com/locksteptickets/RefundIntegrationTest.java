@@ -51,7 +51,8 @@ class RefundIntegrationTest {
 
     @BeforeEach void setup()throws Exception{
         mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
-        for(String table:new String[]{"outbox_event","refund_attempt","refund_item","refund","promo_redemption",
+        jdbc.sql("TRUNCATE admin_audit").update();
+        for(String table:new String[]{"event_reschedule","outbox_event","refund_attempt","refund_item","refund","promo_redemption",
             "payment_attempt","ticket","booking","seat_hold_item","seat_hold","customer_event_limit","promo_code",
             "event_seat","price_tier","event","seat","section","venue","access_session","login_throttle","account"})
             jdbc.sql("DELETE FROM "+table).update();
@@ -94,6 +95,17 @@ class RefundIntegrationTest {
         mvc.perform(cancel(zero.booking(),zero.tickets(),"refund-key-0003","SUCCESS","UNKNOWN",ONE))
             .andExpect(status().isCreated()).andExpect(jsonPath("$.percentageBps").value(0))
             .andExpect(jsonPath("$.amountMinor").value(0));
+    }
+
+    @Test void rescheduleWindowEndIsInclusiveAndFeeRefundStopsOneSecondLater()throws Exception{
+        Fixture inside=booking(1,NOW.plusSeconds(8*24*3600));
+        rescheduleWindow(inside.event(),NOW);
+        mvc.perform(cancel(inside.booking(),inside.tickets(),"reschedule-edge-1","SUCCESS","UNKNOWN",ONE))
+            .andExpect(status().isCreated()).andExpect(jsonPath("$.amountMinor").value(1100));
+        Fixture outside=booking(1,NOW.plusSeconds(8*24*3600));
+        rescheduleWindow(outside.event(),NOW.minusSeconds(1));
+        mvc.perform(cancel(outside.booking(),outside.tickets(),"reschedule-edge-2","SUCCESS","UNKNOWN",ONE))
+            .andExpect(status().isCreated()).andExpect(jsonPath("$.amountMinor").value(1000));
     }
 
     @Test void unknownKeepsSeatProtectedUntilOwnedReconciliation()throws Exception{
@@ -148,6 +160,13 @@ class RefundIntegrationTest {
     MockHttpServletRequestBuilder createHold(UUID event,UUID seat,String token){return auth(post("/api/events/{id}/holds",event)
         .contentType(MediaType.APPLICATION_JSON).content("{\"seatIds\":[\""+seat+"\"]}"),token);}
     MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder r,String token){return r.header(HttpHeaders.AUTHORIZATION,"Bearer "+token);}
+
+    void rescheduleWindow(UUID event,Instant ends){jdbc.sql("""
+        INSERT INTO event_reschedule(event_id,previous_starts_at,new_starts_at,announced_at,
+          refund_window_ends_at,actor_account_id,reason)
+        SELECT id,starts_at-interval '1 day',starts_at,:announced,:ends,:actor,'test' FROM event WHERE id=:event
+        """).param("event",event).param("announced",Timestamp.from(ends.minusSeconds(14*24*3600)))
+        .param("ends",Timestamp.from(ends)).param("actor",one).update();}
 
     Fixture booking(int count,Instant starts)throws Exception{
         UUID venue=UUID.randomUUID(),section=UUID.randomUUID(),event=UUID.randomUUID(),tier=UUID.randomUUID(),hold=UUID.randomUUID(),booking=UUID.randomUUID();

@@ -18,14 +18,18 @@ class RefundRepository {
 
     Optional<Booking> findOwnedBooking(UUID id, UUID accountId) {
         return jdbc.sql("""
-                SELECT b.id,b.account_id,b.event_id,b.state,b.currency,e.starts_at,e.time_zone
+                SELECT b.id,b.account_id,b.event_id,b.state,b.currency,e.starts_at,e.time_zone,
+                       (SELECT er.refund_window_ends_at FROM event_reschedule er
+                        WHERE er.event_id=b.event_id
+                        ORDER BY er.announced_at DESC,er.id DESC LIMIT 1) AS refund_window_ends_at
                 FROM booking b JOIN event e ON e.id=b.event_id
                 WHERE b.id=:id AND b.account_id=:accountId
                 """).param("id", id).param("accountId", accountId)
             .query((rs,n) -> new Booking(rs.getObject("id",UUID.class),
                 rs.getObject("account_id",UUID.class),rs.getObject("event_id",UUID.class),
                 rs.getString("state"),rs.getString("currency").strip(),
-                rs.getTimestamp("starts_at").toInstant(),rs.getString("time_zone"))).optional();
+                rs.getTimestamp("starts_at").toInstant(),rs.getString("time_zone"),
+                instant(rs,"refund_window_ends_at"))).optional();
     }
 
     List<BookingSummary> listBookings(UUID accountId) {
@@ -79,14 +83,17 @@ class RefundRepository {
     void lockSeats(List<UUID> ids) { jdbc.sql("SELECT id FROM event_seat WHERE id IN (:ids) ORDER BY id FOR UPDATE")
         .param("ids",ids).query(UUID.class).list(); }
     Booking lockBooking(UUID id,UUID accountId) { return jdbc.sql("""
-            SELECT b.id,b.account_id,b.event_id,b.state,b.currency,e.starts_at,e.time_zone
+            SELECT b.id,b.account_id,b.event_id,b.state,b.currency,e.starts_at,e.time_zone,
+                   (SELECT er.refund_window_ends_at FROM event_reschedule er
+                    WHERE er.event_id=b.event_id
+                    ORDER BY er.announced_at DESC,er.id DESC LIMIT 1) AS refund_window_ends_at
             FROM booking b JOIN event e ON e.id=b.event_id
             WHERE b.id=:id AND b.account_id=:a FOR UPDATE OF b
             """).param("id",id).param("a",accountId).query((rs,n)->new Booking(
                 rs.getObject("id",UUID.class),rs.getObject("account_id",UUID.class),
                 rs.getObject("event_id",UUID.class),rs.getString("state"),
                 rs.getString("currency").strip(),rs.getTimestamp("starts_at").toInstant(),
-                rs.getString("time_zone"))).single(); }
+                rs.getString("time_zone"),instant(rs,"refund_window_ends_at"))).single(); }
     List<Ticket> lockTickets(UUID bookingId,List<UUID> ids) { return jdbc.sql("""
             SELECT t.id,t.event_seat_id,t.state,t.charged_total_minor,t.service_fee_minor,
                    t.currency,s.section_name,s.row_label,s.seat_number
@@ -94,25 +101,29 @@ class RefundRepository {
             WHERE t.booking_id=:bookingId AND t.id IN (:ids) ORDER BY t.id FOR UPDATE OF t
             """).param("bookingId",bookingId).param("ids",ids).query(this::mapTicket).list(); }
 
-    UUID createRefund(Booking b,String key,byte[] fingerprint,int bps,long amount,Instant now) {
+    UUID createRefund(Booking b,String key,byte[] fingerprint,String kind,int bps,long amount,
+                      long serviceFeeRefund,Instant now) {
         return jdbc.sql("""
                 INSERT INTO refund(booking_id,account_id,refund_key,request_fingerprint,
-                    percentage_bps,amount_minor,currency,created_at,updated_at)
-                VALUES(:b,:a,:key,:fp,:bps,:amount,:currency,:now,:now) RETURNING id
+                    kind,percentage_bps,amount_minor,service_fee_refund_minor,currency,created_at,updated_at)
+                VALUES(:b,:a,:key,:fp,:kind,:bps,:amount,:fee,:currency,:now,:now) RETURNING id
                 """).param("b",b.id()).param("a",b.accountId()).param("key",key).param("fp",fingerprint)
-            .param("bps",bps).param("amount",amount).param("currency",b.currency())
+            .param("kind",kind).param("bps",bps).param("amount",amount).param("fee",serviceFeeRefund)
+            .param("currency",b.currency())
             .param("now",Timestamp.from(now)).query(UUID.class).single();
     }
 
-    void addItems(UUID refundId,List<Ticket> tickets,int bps) {
+    void addItems(UUID refundId,List<Ticket> tickets,int bps,boolean includeFee) {
         for (Ticket t:tickets) {
             long refundable=t.chargedTotalMinor()-t.serviceFeeMinor();
-            long amount=Math.multiplyExact(refundable,bps)/10_000;
+            long fee=includeFee?t.serviceFeeMinor():0;
+            long amount=Math.addExact(Math.multiplyExact(refundable,bps)/10_000,fee);
             jdbc.sql("""
-                    INSERT INTO refund_item(refund_id,ticket_id,charged_refundable_minor,refund_amount_minor)
-                    VALUES(:r,:t,:charged,:amount)
+                    INSERT INTO refund_item(refund_id,ticket_id,charged_refundable_minor,
+                        service_fee_refund_minor,refund_amount_minor)
+                    VALUES(:r,:t,:charged,:fee,:amount)
                     """).param("r",refundId).param("t",t.id()).param("charged",refundable)
-                .param("amount",amount).update();
+                .param("fee",fee).param("amount",amount).update();
         }
     }
 
@@ -171,13 +182,14 @@ class RefundRepository {
             """).param("state",state).param("now",Timestamp.from(now)).param("id",id).update(); }
 
     void succeed(Refund refund,List<Ticket> tickets,Instant now) {
+        long activeCount=tickets.stream().filter(t->!"REFUNDED".equals(t.state())).count();
         jdbc.sql("UPDATE ticket SET state='REFUNDED' WHERE id IN (:ids)")
             .param("ids",tickets.stream().map(Ticket::id).toList()).update();
         setRefundState(refund.id(),"SUCCEEDED",now);
         jdbc.sql("""
                 UPDATE customer_event_limit SET confirmed_ticket_count=confirmed_ticket_count-:count,
                     version=version+1 WHERE account_id=:a AND event_id=:e
-                """).param("count",tickets.size()).param("a",refund.accountId()).param("e",refund.eventId()).update();
+                """).param("count",activeCount).param("a",refund.accountId()).param("e",refund.eventId()).update();
         boolean active=jdbc.sql("SELECT EXISTS(SELECT 1 FROM ticket WHERE booking_id=:id AND state<>'REFUNDED')")
             .param("id",refund.bookingId()).query(Boolean.class).single();
         jdbc.sql("UPDATE booking SET state=:state,updated_at=:now,version=version+1 WHERE id=:id")
@@ -194,6 +206,9 @@ class RefundRepository {
         rs.getObject("id",UUID.class),rs.getObject("event_seat_id",UUID.class),rs.getString("state"),
         rs.getLong("charged_total_minor"),rs.getLong("service_fee_minor"),rs.getString("currency").strip(),
         rs.getString("section_name"),rs.getString("row_label"),rs.getString("seat_number")); }
+    private Instant instant(java.sql.ResultSet rs,String column)throws java.sql.SQLException {
+        Timestamp value=rs.getTimestamp(column);return value==null?null:value.toInstant();
+    }
     private Refund mapRefund(java.sql.ResultSet rs,int n)throws java.sql.SQLException { return new Refund(
         rs.getObject("id",UUID.class),rs.getObject("booking_id",UUID.class),rs.getObject("account_id",UUID.class),
         rs.getObject("event_id",UUID.class),rs.getString("state"),rs.getString("refund_key"),
@@ -204,7 +219,8 @@ class RefundRepository {
                r.percentage_bps,r.amount_minor,r.currency FROM refund r JOIN booking b ON b.id=r.booking_id
         """;
 
-    record Booking(UUID id,UUID accountId,UUID eventId,String state,String currency,Instant startsAt,String timeZone){}
+    record Booking(UUID id,UUID accountId,UUID eventId,String state,String currency,Instant startsAt,
+                   String timeZone,Instant refundWindowEndsAt){}
     record BookingSummary(UUID id,String reference,String state,String currency,long totalMinor,String eventName,Instant startsAt){}
     record Ticket(UUID id,UUID eventSeatId,String state,long chargedTotalMinor,long serviceFeeMinor,
                   String currency,String section,String row,String number){}
