@@ -65,7 +65,7 @@ class PostgresMigrationIntegrationTest {
             assertThat(result.getString(1)).isEqualTo(POSTGRES.getDatabaseName());
         }
 
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
     }
 
     @Test
@@ -87,7 +87,7 @@ class PostgresMigrationIntegrationTest {
             .createSchemas(true)
             .load();
         upgrade.migrate();
-        assertThat(upgrade.info().current().getVersion().getVersion()).isEqualTo("3");
+        assertThat(upgrade.info().current().getVersion().getVersion()).isEqualTo("4");
     }
 
     @Test

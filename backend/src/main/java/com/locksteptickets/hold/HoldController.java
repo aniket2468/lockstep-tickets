@@ -34,10 +34,11 @@ public class HoldController {
         @Valid @RequestBody CreateHoldRequest request,
         @AuthenticationPrincipal AuthenticatedAccount account
     ) {
-        return holdService.create(eventId, request.seatIds(), account);
+        return holdService.create(eventId, request.seatIds(), request.promoCode(), account);
     }
 
     public record CreateHoldRequest(
-        @NotEmpty @Size(max = 6) List<@NotNull UUID> seatIds
+        @NotEmpty @Size(max = 6) List<@NotNull UUID> seatIds,
+        @Size(max = 40) String promoCode
     ) {}
 }

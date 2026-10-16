@@ -234,15 +234,17 @@ Refund bands compare elapsed instants to the resolved event-start instant, so a
 
 ## Known Gaps and Evidence Status
 
-The atomic hold checkpoint is implemented and its executed evidence
-is recorded in `docs/VERIFICATION.md`. Booking ownership cannot yet be tested
-because booking resources do not exist. Explicit server-side logout,
+The immutable-pricing and idempotent-checkout checkpoint is implemented and its
+executed evidence is recorded in `docs/VERIFICATION.md`. Explicit server-side logout,
 session/throttle-row cleanup, production-profile startup guards, a restricted
-production database role, checkout/refund workflows, audit/outbox behavior,
+production database role, refund workflows, admin audit behavior,
 browser end-to-end automation, and backend/container vulnerability scans remain
-release gaps. HTTPS is an edge/deployment responsibility; bearer tokens must
+release gaps. Checkout currently provides customer-triggered reconciliation;
+the scheduled recovery worker and compensating-refund path for an unrecoverable
+post-payment inventory inconsistency remain future work. HTTPS is an
+edge/deployment responsibility; bearer tokens must
 never cross plaintext or be stored in browser local storage. Concurrency claims
-remain `NOT RUN` until the inventory workflows exist.
+remain limited to the cases explicitly recorded in the verification ledger.
 
 ## AI Assistance Disclosure
 
@@ -295,4 +297,14 @@ PostgreSQL GiST exclusion prevents overlapping historical seat-claim intervals
 even if application checks regress. Seven hold integration tests include 20
 barrier-coordinated same-seat contention rounds without timing sleeps, exact
 sale-window boundaries, authorization, rollback, expiry reuse, and limit checks.
+
+For the immutable-pricing and checkout checkpoint, Codex added V4 pricing,
+promo, booking, ticket, payment, redemption, and outbox persistence; deterministic
+largest-remainder allocation; server-frozen hold quotes; customer-scoped
+idempotency; mock success, decline, timeout, unknown, and lookup behavior; and
+payment-pending inventory. Seven PostgreSQL checkout tests and four pure pricing
+tests cover immutable snapshots, replay safety, expiry and ownership boundaries,
+strict request binding, ambiguous-payment reconciliation, and a coordinated
+last-promo-use race. Provider observations are committed separately from final
+booking state so a retry or reconciliation can resume without charging twice.
 

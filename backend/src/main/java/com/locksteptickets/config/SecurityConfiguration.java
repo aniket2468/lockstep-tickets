@@ -77,7 +77,8 @@ public class SecurityConfiguration {
         var configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", RequestIdFilter.HEADER));
+        configuration.setAllowedHeaders(List.of(
+            "Authorization", "Content-Type", "Idempotency-Key", RequestIdFilter.HEADER));
         configuration.setExposedHeaders(List.of(RequestIdFilter.HEADER));
         configuration.setAllowCredentials(false);
         configuration.setMaxAge(3600L);

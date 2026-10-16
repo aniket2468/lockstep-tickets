@@ -4,7 +4,8 @@ Lockstep Tickets is a correctness-first assigned-seat booking system built with
 Spring Boot, React, and PostgreSQL. The current checkpoint includes a secure
 authentication boundary, authenticated event search, customer-safe seat
 availability, and atomic ten-minute seat holds. Checkout and booking workflows
-follow in later incremental commits.
+now include immutable pricing, constrained promo codes, idempotent mock payment,
+payment-pending inventory protection, and customer-owned reconciliation.
 
 ## Prerequisites
 
@@ -145,6 +146,18 @@ The Vite development server is available at <http://localhost:5173> and proxies
   only one active hold per customer/event, enforce the 12-ticket aggregate
   limit, and return `409` without partial allocation when any seat is invalid,
   blocked, or already held.
+- Hold quotes are computed only from server-side tier, early-bird, group, promo,
+  and flat-fee rules. Aggregate and per-ticket integer-minor-unit allocations
+  are persisted at hold creation and validated again before checkout.
+- `POST /api/holds/{holdId}/checkout` requires a customer-owned, unexpired hold
+  and an `Idempotency-Key` header of 8–100 characters. Its mock body selects
+  `SUCCESS`, `DECLINE`, `TIMEOUT`, or `UNKNOWN`; retries with the same key and
+  payload never create a second payment attempt, while changed payloads are
+  rejected. `POST /api/bookings/{bookingId}/reconcile` resolves customer-owned
+  ambiguous payments through the configured mock lookup result.
+- Payment calls occur without database row locks. Unknown payments retain
+  explicit payment-pending inventory; success creates immutable charged ticket
+  components and one transactional outbox event, while decline releases seats.
 - Backend and frontend containers run as non-root with read-only root filesystems.
 
 See [NOTES.md](NOTES.md) for accepted rules and architecture decisions, and
