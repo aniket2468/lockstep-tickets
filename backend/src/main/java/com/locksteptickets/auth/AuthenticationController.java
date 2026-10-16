@@ -26,9 +26,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthenticationController {
 
     private final AuthenticationService authenticationService;
+    private final ClientIpResolver clientIpResolver;
 
-    public AuthenticationController(AuthenticationService authenticationService) {
+    public AuthenticationController(
+        AuthenticationService authenticationService,
+        ClientIpResolver clientIpResolver
+    ) {
         this.authenticationService = authenticationService;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @PostMapping("/login")
@@ -37,7 +42,7 @@ public class AuthenticationController {
         HttpServletRequest httpRequest
     ) {
         AuthenticationService.LoginResult result = authenticationService.login(
-            request.email(), request.password(), httpRequest.getRemoteAddr());
+            request.email(), request.password(), clientIpResolver.resolve(httpRequest));
         return ResponseEntity.ok()
             .cacheControl(CacheControl.noStore())
             .body(new LoginResponse(

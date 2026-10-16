@@ -56,6 +56,9 @@ lockstep:
     throttle-duration: ${LOCKSTEP_LOGIN_THROTTLE_DURATION:PT15M}
     account-max-failures: ${LOCKSTEP_LOGIN_ACCOUNT_MAX_FAILURES:5}
     ip-max-failures: ${LOCKSTEP_LOGIN_IP_MAX_FAILURES:30}
+  http:
+    max-json-request-bytes: ${LOCKSTEP_MAX_JSON_REQUEST_BYTES:65536}
+    trusted-proxy-cidrs: ${LOCKSTEP_TRUSTED_PROXY_CIDRS:}
   cors:
     allowed-origins: ${LOCKSTEP_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
   demo:

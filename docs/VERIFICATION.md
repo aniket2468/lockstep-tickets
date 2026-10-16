@@ -12,8 +12,8 @@ server image/version will be recorded when the local environment is created.
 | --- | --- | --- | --- |
 | Accepted rules documented | PASS | Manual comparison to supplied assignment and stakeholder reply on 2026-10-15 | Accepted answers and five required design decisions are recorded in `NOTES.md` |
 | Documentation whitespace check | PASS | `awk '/[[:blank:]]+$/ { ... }' README.md NOTES.md docs/*.md` on 2026-10-16 | Exit code 0; no trailing whitespace |
-| Backend unit tests | PASS | `JAVA_HOME=... ./mvnw -q test` on 2026-10-16 | Clock policy, 4 exact integer pricing tests, and 2 refund boundary/DST tests passed on Java 21.0.12.1 |
-| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 59 integration tests passed against PostgreSQL 18.6; 66 backend tests total |
+| Backend unit tests | PASS | `JAVA_HOME=... mvn test` on 2026-10-16 | 15 unit/policy/security tests passed on Java 21.0.12.1, including trusted-proxy parsing and declared/chunked-style JSON size limits |
+| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 61 integration tests passed against PostgreSQL 18.6; 76 backend tests total with 0 failures, errors, or skips |
 | Same-seat concurrency repeated | PASS | 20 two-customer rounds coordinated with latches against PostgreSQL | Every round produced exactly one `201`, one `409`, one hold, and one hold item; no timing sleeps |
 | Customer-limit concurrency | NOT RUN | Sequential hold, checkout, refund, and waitlist boundary cases pass | A dedicated concurrent race at the aggregate 12-ticket boundary has not been run |
 | Promo-limit concurrency | PASS | Two latch-coordinated checkouts for the final global use | Exactly one checkout returned `201`, one returned `409`, and only one payment attempt/redemption was created |
@@ -24,7 +24,7 @@ server image/version will be recorded when the local environment is created.
 | Reconciled admin reports | PASS | Sales and occupancy integration scenario under repeatable-read transactions | Gross 1100 - succeeded refund 1000 = net 100; all 3 seats reconciled exactly across blocked, offered, and unallocated buckets; customer access was denied |
 | Fresh migration | PASS | Focused and full Testcontainers migration runs | Flyway created `lockstep` and applied V1 through V7 to empty PostgreSQL 18.6 databases |
 | Upgrade migrations | PASS | Testcontainers test first targets V1 in a separate schema, then runs unrestricted Flyway | Flyway detected V1 and applied V2/V3/V4/V5/V6/V7, reaching schema version 7 |
-| Authentication boundary | PASS | 8 MockMvc/PostgreSQL integration tests | Proved login, hashed opaque sessions, expiry, malformed tokens, inactive-account invalidation, generic failures, account/IP throttling, role denial, strict JSON, no-store responses, and request IDs |
+| Authentication boundary | PASS | 10 MockMvc/PostgreSQL integration tests plus 8 focused filter/resolver tests | Proved login, hashed opaque sessions, expiry, malformed tokens, inactive-account invalidation, generic failures, distinct clients behind a trusted proxy, spoof/malformed chain rejection, account/IP throttling, pre-deserialization 64 KiB JSON limits with and without length, role denial, strict JSON, no-store responses, and request IDs |
 | Authenticated event catalog | PASS | 6 MockMvc/PostgreSQL integration tests | Proved authentication, bounded literal search, deterministic pagination, customer-visible state and retirement filtering, safe 404/validation errors, snapshot seat output, and masking of blocks/internal inventory fields |
 | Atomic seat holds | PASS | 7 MockMvc/PostgreSQL integration tests | Proved customer-only access, one-to-six unique seats, fixed ten-minute expiry, start-inclusive/end-exclusive sales, one active hold, aggregate limit, mixed-request rollback, cross-event rejection, lazy expiry/reuse, live catalog masking, and repeated contention |
 | Database-test fail-closed behavior | PASS | Focused Maven test with Docker socket inaccessible | Maven exited nonzero with 1 Testcontainers error and 0 skipped tests; PostgreSQL coverage can no longer silently disappear |
@@ -38,10 +38,10 @@ server image/version will be recorded when the local environment is created.
 | Browser workflow tests | PASS | `npm run test:e2e` using Playwright 1.64.1 and local Chrome on 2026-10-16 | 2 tests passed: an accessible customer seat-to-confirmation flow and a 390×844 admin reconciled-report flow; API responses were deterministically browser-mocked, so live-backend browser E2E remains a separate gap |
 | Reconciliation assertions | PASS | Payment and refund timeout-to-success lookup integration cases | Pending inventory remained unavailable; payment reconciliation created exactly one ticket, refund reconciliation released exactly one seat, and foreign reconciliation was hidden |
 | Frontend dependency audit | PASS | Playwright dependency install plus container `npm ci` | 236 runtime/development packages audited; npm reported 0 vulnerabilities |
-| Backend dependency vulnerability scan | NOT RUN | — | Dedicated CVE scanner not run yet |
-| Container image scan | NOT RUN | — | Images build successfully; dedicated image scanner not run yet |
-| Container runtime hardening | PASS | `docker compose exec ... id` and `docker inspect` on 2026-10-15 | Backend UID 100 and frontend UID 101; both root filesystems read-only |
-| Live health and frontend headers | PASS | Local `curl` checks on ports 8081 and 3000 | Health was `UP`, waitlist and report routes returned `401` without authentication, UI title loaded, and prior CSP/referrer/content-type/frame/permissions header checks remain recorded |
+| Backend dependency vulnerability scan | PASS | Trivy 0.74.0 against exported rebuilt backend image on 2026-10-16; fixed HIGH/CRITICAL gate with `--ignore-unfixed --exit-code 1` | Alpine 3.24.2: 0; packaged application JAR: 0. Initial scan found and blocked 3 CRITICAL Tomcat and 5 HIGH Jackson findings before version overrides |
+| Container image scan | PASS | Trivy 0.74.0 against exported rebuilt frontend image on 2026-10-16; same gate | Alpine 3.23.4: 0. Initial scan found and blocked 43 HIGH findings before runtime package upgrades |
+| Container runtime hardening | PASS | `docker compose exec ... id` and `docker inspect` on 2026-10-16 | Backend UID 100 and frontend UID 101; both root filesystems read-only |
+| Live health and frontend headers | PASS | Local `curl` checks on ports 8081 and 3000 on 2026-10-16 | Both health paths were `UP`; CSP/referrer/content-type/frame/permissions headers were present; nginx and direct backend independently rejected a 70 KB login with `413`, and the backend returned the stable redacted error envelope |
 | Docker Compose build and upgrade | PASS | `docker compose up --build --detach` on 2026-10-16 against the preserved volume | Initial run detected V6 and applied only V7 in 12 ms; a final source rebuild validated all 8 migrations at schema version 7. PostgreSQL and backend health were `UP`, the UI loaded, unauthenticated waitlist/report access returned `401`, then the stack stopped with its volume preserved |
 | README clean-run commands | PASS | Commands executed from the new repository on 2026-10-15 | Maven verify, npm install/test/lint/build, Compose build/start, health check, and teardown behavior verified |
 | Catalog/auth runtime smoke test | PASS | Compose rebuild plus local health, UI, and unauthenticated catalog requests on 2026-10-15 | Packaged UI served the expected title, health returned `UP`, and `/api/events` returned the stable `AUTHENTICATION_REQUIRED` envelope with HTTP 401 |
@@ -53,6 +53,23 @@ The project is **not fully verified** while any release-blocking gate remains
 ## Resolved Failure History
 
 Failures remain recorded here even after their regression gates pass:
+
+- The first release image scan blocked 3 CRITICAL Tomcat, 5 HIGH Jackson, and
+  43 HIGH frontend Alpine findings. Spring-managed version overrides moved
+  Tomcat to 11.0.25 and Jackson to 3.1.7; the nginx runtime now upgrades its
+  installed Alpine packages during the image build. Rebuilt-image scans report
+  zero fixed HIGH/CRITICAL findings across both OS layers and the backend JAR.
+- The release security review found that nginx made every browser login appear
+  to originate from one container address and that Tomcat's form-post setting
+  did not bound JSON. A trusted-proxy resolver now uses the rightmost untrusted
+  literal only behind configured proxies, while a pre-deserialization filter
+  and nginx both enforce 64 KiB. Tests cover spoofed/malformed chains, distinct
+  proxied clients, declared and absent content lengths, and exact-limit bodies.
+- The first final frontend test/build invocation inherited system Node 18 and
+  failed before test discovery because Vite requires Node 22. Re-running under
+  the documented Node 22.16.0 passed all 11 tests, lint, and the build. The first
+  Playwright attempt was likewise blocked before discovery by sandbox port
+  permissions; allowing its local preview port produced 2 passing workflows.
 
 - The first checkpoint-10 lint run rejected implicit `FormData` object
   stringification and synchronous loading resets inside effects. Typed form

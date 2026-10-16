@@ -12,6 +12,7 @@ import java.sql.Timestamp;
 import java.util.UUID;
 
 import com.locksteptickets.api.RequestIdFilter;
+import com.locksteptickets.api.JsonRequestSizeFilter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,7 +35,10 @@ import tools.jackson.databind.ObjectMapper;
 
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 
-@SpringBootTest(properties = "lockstep.authentication.ip-max-failures=6")
+@SpringBootTest(properties = {
+    "lockstep.authentication.ip-max-failures=6",
+    "lockstep.http.trusted-proxy-cidrs=172.16.0.0/12"
+})
 @Testcontainers
 class AuthenticationIntegrationTest {
 
@@ -60,13 +64,16 @@ class AuthenticationIntegrationTest {
     @Autowired
     private RequestIdFilter requestIdFilter;
 
+    @Autowired
+    private JsonRequestSizeFilter jsonRequestSizeFilter;
+
     private MockMvc mockMvc;
     private String passwordHash;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
-            .addFilters(requestIdFilter)
+            .addFilters(requestIdFilter, jsonRequestSizeFilter)
             .apply(springSecurity())
             .build();
         jdbcClient.sql("DELETE FROM access_session").update();
@@ -150,6 +157,37 @@ class AuthenticationIntegrationTest {
             .andExpect(status().isTooManyRequests())
             .andExpect(header().exists("Retry-After"))
             .andExpect(jsonPath("$.error.code").value("LOGIN_RATE_LIMITED"));
+    }
+
+    @Test
+    void separatesForwardedClientsOnlyBehindConfiguredProxy() throws Exception {
+        for (int attempt = 1; attempt < 6; attempt++) {
+            proxiedLogin("203.0.113.10", "missing-proxied-" + attempt + "@example.com")
+                .andExpect(status().isUnauthorized());
+        }
+
+        proxiedLogin("203.0.113.10", "blocked-proxied@example.com")
+            .andExpect(status().isTooManyRequests());
+        proxiedLogin("203.0.113.11", "separate-proxied@example.com")
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void rejectsOversizedJsonBeforeAuthenticationWork() throws Exception {
+        String oversizedPassword = "x".repeat(65_536);
+
+        mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsBytes(
+                    new LoginBody("person@example.com", oversizedPassword))))
+            .andExpect(status().isPayloadTooLarge())
+            .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+            .andExpect(jsonPath("$.error.code").value("PAYLOAD_TOO_LARGE"))
+            .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                .doesNotContain(oversizedPassword));
+
+        assertThat(jdbcClient.sql("SELECT count(*) FROM login_throttle")
+            .query(Long.class).single()).isZero();
     }
 
     @Test
@@ -250,6 +288,21 @@ class AuthenticationIntegrationTest {
         throws Exception {
         String body = objectMapper.writeValueAsString(new LoginBody(email, password));
         return mockMvc.perform(post("/api/auth/login")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(body));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions proxiedLogin(
+        String clientAddress,
+        String email
+    ) throws Exception {
+        String body = objectMapper.writeValueAsString(new LoginBody(email, "wrong-password"));
+        return mockMvc.perform(post("/api/auth/login")
+            .with(request -> {
+                request.setRemoteAddr("172.20.0.5");
+                return request;
+            })
+            .header("X-Forwarded-For", "198.51.100.200, " + clientAddress)
             .contentType(MediaType.APPLICATION_JSON)
             .content(body));
     }
