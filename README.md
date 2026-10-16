@@ -99,7 +99,7 @@ npm run build
 npm run test:e2e
 ```
 
-The current verification baseline is 76 backend tests, 11 frontend unit tests,
+The current verification baseline is 77 backend tests, 11 frontend unit tests,
 and 2 browser tests. The exact commands, results, concurrency scenarios, and
 container scan evidence are recorded in
 [docs/VERIFICATION.md](docs/VERIFICATION.md).

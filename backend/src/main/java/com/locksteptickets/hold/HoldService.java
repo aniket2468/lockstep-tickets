@@ -54,11 +54,11 @@ public class HoldService {
         repository.expireEventHolds(eventId, now);
         repository.ensureAndLockLimit(account.accountId(), eventId);
         int currentTotal = repository.refreshAndGetTotal(account.accountId(), eventId, now);
-        if (repository.hasActiveHold(account.accountId(), eventId, now)) {
-            throw conflict("ACTIVE_HOLD_EXISTS", "Only one active hold is allowed per event.");
-        }
         if (currentTotal + seatIds.size() > CUSTOMER_EVENT_LIMIT) {
             throw conflict("CUSTOMER_EVENT_LIMIT_EXCEEDED", "The customer event ticket limit would be exceeded.");
+        }
+        if (repository.hasActiveHold(account.accountId(), eventId, now)) {
+            throw conflict("ACTIVE_HOLD_EXISTS", "Only one active hold is allowed per event.");
         }
 
         List<HoldRepository.SeatForHold> seats = repository.lockSeats(eventId, seatIds);

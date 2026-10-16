@@ -224,7 +224,7 @@ accounts are disabled by default and require explicit local passwords.
 
 The latest completed baseline is:
 
-- 76 backend tests with no failures, errors, or skips;
+- 77 backend tests with no failures, errors, or skips;
 - 11 frontend unit tests passing;
 - frontend lint and production build passing;
 - 2 Playwright browser scenarios passing;

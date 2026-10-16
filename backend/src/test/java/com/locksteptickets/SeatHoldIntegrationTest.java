@@ -229,6 +229,65 @@ class SeatHoldIntegrationTest {
         }
     }
 
+    @Test
+    void concurrentHoldsCannotPushOneCustomerPastEventLimit() throws Exception {
+        Fixture fixture = event("ON_SALE");
+        List<UUID> firstPair = List.of(
+            seat(fixture, "1", "AVAILABLE", 0),
+            seat(fixture, "2", "AVAILABLE", 1));
+        List<UUID> secondPair = List.of(
+            seat(fixture, "3", "AVAILABLE", 2),
+            seat(fixture, "4", "AVAILABLE", 3));
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            for (int attempt = 0; attempt < 20; attempt++) {
+                jdbcClient.sql("DELETE FROM seat_hold_item").update();
+                jdbcClient.sql("DELETE FROM seat_hold").update();
+                jdbcClient.sql("DELETE FROM customer_event_limit").update();
+                jdbcClient.sql("""
+                        INSERT INTO customer_event_limit (
+                            account_id, event_id, confirmed_ticket_count, active_hold_seat_count
+                        ) VALUES (:accountId, :eventId, 10, 0)
+                        """)
+                    .param("accountId", customerOne)
+                    .param("eventId", fixture.eventId())
+                    .update();
+
+                var ready = new CountDownLatch(2);
+                var start = new CountDownLatch(1);
+                Callable<HoldAttempt> first = limitContender(
+                    fixture.eventId(), firstPair, ready, start);
+                Callable<HoldAttempt> second = limitContender(
+                    fixture.eventId(), secondPair, ready, start);
+                var one = executor.submit(first);
+                var two = executor.submit(second);
+                ready.await();
+                start.countDown();
+
+                List<HoldAttempt> outcomes = List.of(one.get(), two.get());
+                assertThat(outcomes).extracting(HoldAttempt::status)
+                    .containsExactlyInAnyOrder(201, 409);
+                assertThat(outcomes.stream()
+                    .filter(result -> result.status() == 409)
+                    .map(HoldAttempt::body)
+                    .toList())
+                    .singleElement()
+                    .asString()
+                    .contains("CUSTOMER_EVENT_LIMIT_EXCEEDED");
+                assertThat(count("seat_hold")).isEqualTo(1);
+                assertThat(count("seat_hold_item")).isEqualTo(2);
+                assertThat(jdbcClient.sql("""
+                        SELECT confirmed_ticket_count + active_hold_seat_count
+                        FROM customer_event_limit
+                        WHERE account_id = :accountId AND event_id = :eventId
+                        """)
+                    .param("accountId", customerOne)
+                    .param("eventId", fixture.eventId())
+                    .query(Integer.class).single()).isEqualTo(12);
+            }
+        }
+    }
+
     private Callable<Integer> contender(UUID eventId, UUID seatId, String token,
                                         CountDownLatch ready, CountDownLatch start) {
         return () -> {
@@ -236,6 +295,17 @@ class SeatHoldIntegrationTest {
             start.await();
             return mockMvc.perform(create(eventId, List.of(seatId), token))
                 .andReturn().getResponse().getStatus();
+        };
+    }
+
+    private Callable<HoldAttempt> limitContender(UUID eventId, List<UUID> seatIds,
+                                                  CountDownLatch ready, CountDownLatch start) {
+        return () -> {
+            ready.countDown();
+            start.await();
+            var response = mockMvc.perform(create(eventId, seatIds, CUSTOMER_ONE_TOKEN))
+                .andReturn().getResponse();
+            return new HoldAttempt(response.getStatus(), response.getContentAsString());
         };
     }
 
@@ -309,6 +379,7 @@ class SeatHoldIntegrationTest {
     }
 
     private record Fixture(UUID eventId, UUID sectionId, UUID tierId) {}
+    private record HoldAttempt(int status, String body) {}
 
     @TestConfiguration
     static class FixedClockConfiguration {
