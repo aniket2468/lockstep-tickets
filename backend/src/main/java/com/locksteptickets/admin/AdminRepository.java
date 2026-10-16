@@ -28,14 +28,20 @@ class AdminRepository {
             """).param("seat",seatId).param("event",eventId)
         .query((rs,n)->new SeatRow(rs.getObject("id",UUID.class),rs.getString("inventory_state"))).optional();}
 
-    void expireHolds(UUID eventId,Instant now){jdbc.sql("""
-            UPDATE seat_hold SET state='EXPIRED',ended_at=expires_at,version=version+1
-            WHERE event_id=:event AND state='ACTIVE' AND expires_at<=:now
-            """).param("event",eventId).param("now",Timestamp.from(now)).update();}
+    void expireHolds(UUID eventId,Instant now){
+        jdbc.sql("""
+                UPDATE waitlist_entry SET state='EXPIRED',resolved_at=offer_expires_at,
+                    updated_at=:now,version=version+1
+                WHERE event_id=:event AND state='OFFERED' AND offer_expires_at<=:now
+                """).param("event",eventId).param("now",Timestamp.from(now)).update();
+        jdbc.sql("""
+                UPDATE seat_hold SET state='EXPIRED',ended_at=expires_at,version=version+1
+                WHERE event_id=:event AND state IN ('ACTIVE','WAITLIST_OFFER') AND expires_at<=:now
+                """).param("event",eventId).param("now",Timestamp.from(now)).update();}
 
     boolean seatClaimed(UUID seatId,Instant now){return jdbc.sql("""
             SELECT EXISTS(SELECT 1 FROM seat_hold_item i JOIN seat_hold h ON h.id=i.hold_id
-              WHERE i.event_seat_id=:seat AND ((h.state='ACTIVE' AND h.expires_at>:now)
+              WHERE i.event_seat_id=:seat AND ((h.state IN ('ACTIVE','WAITLIST_OFFER') AND h.expires_at>:now)
                 OR h.state='PAYMENT_PENDING'))
             OR EXISTS(SELECT 1 FROM ticket WHERE event_seat_id=:seat
               AND state IN ('CONFIRMED','CANCELLATION_PENDING'))
@@ -81,6 +87,40 @@ class AdminRepository {
     void lockBookings(UUID eventId){jdbc.sql("""
             SELECT id FROM booking WHERE event_id=:event ORDER BY id FOR UPDATE
             """).param("event",eventId).query(UUID.class).list();}
+    List<UUID> claimedSeatIds(UUID eventId,Instant now){return jdbc.sql("""
+            SELECT i.event_seat_id FROM seat_hold h JOIN seat_hold_item i ON i.hold_id=h.id
+            WHERE h.event_id=:event AND h.state IN ('ACTIVE','WAITLIST_OFFER') AND h.expires_at>:now
+            ORDER BY i.event_seat_id
+            """).param("event",eventId).param("now",Timestamp.from(now)).query(UUID.class).list();}
+    void lockOpenHolds(UUID eventId){jdbc.sql("""
+            SELECT h.id FROM seat_hold h WHERE h.event_id=:event AND h.state IN ('ACTIVE','WAITLIST_OFFER')
+            ORDER BY h.id FOR UPDATE
+            """).param("event",eventId).query(UUID.class).list();}
+    void lockWaitlist(UUID eventId){jdbc.sql("""
+            SELECT id FROM waitlist_entry WHERE event_id=:event AND state IN ('WAITING','OFFERED')
+            ORDER BY enqueue_sequence FOR UPDATE
+            """).param("event",eventId).query(UUID.class).list();}
+    void cancelWaitlist(UUID eventId,Instant now){
+        jdbc.sql("""
+                UPDATE seat_hold_item SET claim_ends_at=:now WHERE hold_id IN (
+                  SELECT id FROM seat_hold WHERE event_id=:event AND state IN ('ACTIVE','WAITLIST_OFFER'))
+                """).param("event",eventId).param("now",Timestamp.from(now)).update();
+        jdbc.sql("""
+                UPDATE seat_hold SET state='RELEASED',ended_at=:now,version=version+1
+                WHERE event_id=:event AND state IN ('ACTIVE','WAITLIST_OFFER')
+                """).param("event",eventId).param("now",Timestamp.from(now)).update();
+        jdbc.sql("""
+                UPDATE waitlist_entry SET state='CANCELLED',resolved_at=:now,updated_at=:now,
+                    version=version+1 WHERE event_id=:event AND state IN ('WAITING','OFFERED')
+                """).param("event",eventId).param("now",Timestamp.from(now)).update();
+        jdbc.sql("""
+                UPDATE customer_event_limit l SET active_hold_seat_count=(
+                  SELECT count(*) FROM seat_hold h JOIN seat_hold_item i ON i.hold_id=h.id
+                  WHERE h.account_id=l.account_id AND h.event_id=l.event_id
+                    AND ((h.state IN ('ACTIVE','WAITLIST_OFFER') AND h.expires_at>:now)
+                      OR h.state='PAYMENT_PENDING')),version=version+1
+                WHERE l.event_id=:event
+                """).param("event",eventId).param("now",Timestamp.from(now)).update();}
     List<TicketRow> lockTickets(UUID eventId){jdbc.sql("""
             SELECT id FROM ticket WHERE event_id=:event ORDER BY id FOR UPDATE
             """).param("event",eventId).query(UUID.class).list();return cancellableTickets(eventId);}

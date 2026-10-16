@@ -8,7 +8,8 @@ now include immutable pricing, constrained promo codes, idempotent mock payment,
 payment-pending inventory protection, customer-owned reconciliation, and full
 or selected-ticket customer cancellation with idempotent mock refunds. Admins
 can block/release seats, reschedule/cancel events, issue exceptional refunds,
-and inspect an append-only audit trail.
+inspect an append-only audit trail, promote FIFO waitlist offers, and read
+transactionally reconciled sales and occupancy reports.
 
 ## Prerequisites
 
@@ -181,6 +182,21 @@ The Vite development server is available at <http://localhost:5173> and proxies
   payments, closes sales, restores consumed promo uses, and refunds every
   remaining charged minor unit exactly once, including prior partially refunded
   tickets. Mock refund provider calls occur only after the setup transaction.
+- Customers may join `/api/events/{eventId}/waitlist` only when their requested
+  quantity is unavailable, optionally within a venue section. There is one
+  active entry per customer/event. Admin promotion scans FIFO for the earliest
+  currently eligible quantity/section request, skips customers at the 12-ticket
+  limit, and creates a 15-minute exclusive offer without purchasing anything.
+- Offered seats are hidden from availability and cannot be checked out until
+  their owner explicitly claims the offer. Claiming ends the offer and creates
+  a fresh, immutable-price ten-minute hold. Exact-boundary expiry, customer
+  cancellation, and event cancellation release offers without overlapping
+  another seat claim. Promotion is explicitly admin-triggered in this scoped
+  release; a background promotion/notification worker is deferred.
+- Admin sales reports reconcile immutable gross ticket charges, succeeded and
+  pending refunds, and net sales in one repeatable-read transaction. Occupancy
+  reports classify every seat exactly once as blocked, sold, payment-pending,
+  waitlist-offered, held, or unallocated and return the reconciled total.
 - Backend and frontend containers run as non-root with read-only root filesystems.
 
 See [NOTES.md](NOTES.md) for accepted rules and architecture decisions, and

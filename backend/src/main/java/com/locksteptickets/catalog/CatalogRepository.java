@@ -94,7 +94,7 @@ public class CatalogRepository {
                            SELECT 1
                            FROM seat_hold_item hi JOIN seat_hold h ON h.id = hi.hold_id
                            WHERE hi.event_seat_id = es.id
-                             AND ((h.state = 'ACTIVE' AND h.expires_at > :now)
+                             AND ((h.state IN ('ACTIVE', 'WAITLIST_OFFER') AND h.expires_at > :now)
                                OR h.state = 'PAYMENT_PENDING')
                        ) OR EXISTS (
                            SELECT 1 FROM ticket t

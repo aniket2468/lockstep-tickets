@@ -234,14 +234,15 @@ Refund bands compare elapsed instants to the resolved event-start instant, so a
 
 ## Known Gaps and Evidence Status
 
-Audited admin seat operations, rescheduling, event cancellation, and
-exceptional refunds are implemented, with executed evidence in
-`docs/VERIFICATION.md`. Minimal venue/section/seat/event/price/promo CRUD beyond
-these required override flows remains deferred. Explicit server-side logout,
+Audited admin operations, FIFO quantity/section waitlisting, exclusive offer
+claiming, and reconciled sales/occupancy reads are implemented, with executed
+evidence in `docs/VERIFICATION.md`. Waitlist promotion is admin-triggered for
+this scoped release; background promotion and notification delivery remain
+deferred. Minimal venue/section/seat/event/price/promo CRUD beyond the required
+override flows remains deferred. Explicit server-side logout,
 session/throttle-row cleanup, production-profile startup guards, a restricted
-production database role, admin audit behavior,
-browser end-to-end automation, and backend/container vulnerability scans remain
-release gaps. Checkout currently provides customer-triggered reconciliation;
+production database role, browser end-to-end automation, and backend/container
+vulnerability scans remain release gaps. Checkout currently provides customer-triggered reconciliation;
 the scheduled recovery worker and compensating-refund path for an unrecoverable
 post-payment inventory inconsistency remain future work. HTTPS is an
 edge/deployment responsibility; bearer tokens must
@@ -340,4 +341,16 @@ Admin-created refunds that receive an unknown result remain protected and can
 be reconciled through the existing owner-visible refund endpoint. A declined
 admin-created refund is persisted without releasing inventory, but a dedicated
 operator retry endpoint and scheduled recovery worker remain deferred work.
+
+For the waitlist and reporting checkpoint, Codex added V7 waitlist persistence,
+a database-visible `WAITLIST_OFFER` claim state, sold-out-only enrollment,
+quantity/section-aware FIFO selection, explicit claim into a new ten-minute
+hold, customer and event cancellation cleanup, and repeatable-read sales and
+occupancy queries. Six PostgreSQL integration tests include ten coordinated
+promotion-versus-direct-hold races, exact 15-minute expiry, ownership and role
+boundaries, 12-ticket skipping, price-preserving checkout, event-cancellation
+cleanup, and exact money/seat reconciliation. The work also corrected an older
+customer-limit counter assignment that double-counted confirmed tickets when a
+new hold was created. Failed assertions and their corrections remain recorded
+in the verification ledger.
 

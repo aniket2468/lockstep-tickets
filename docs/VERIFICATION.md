@@ -11,24 +11,26 @@ server image/version will be recorded when the local environment is created.
 | Gate | Status | Command or evidence | Observation |
 | --- | --- | --- | --- |
 | Accepted rules documented | PASS | Manual comparison to supplied assignment and stakeholder reply on 2026-10-15 | Accepted answers and five required design decisions are recorded in `NOTES.md` |
-| Documentation whitespace check | PASS | `awk '/[[:blank:]]+$/ { ... }' NOTES.md docs/*.md` on 2026-10-15 | Exit code 0; no trailing whitespace |
+| Documentation whitespace check | PASS | `awk '/[[:blank:]]+$/ { ... }' README.md NOTES.md docs/*.md` on 2026-10-16 | Exit code 0; no trailing whitespace |
 | Backend unit tests | PASS | `JAVA_HOME=... ./mvnw -q test` on 2026-10-16 | Clock policy, 4 exact integer pricing tests, and 2 refund boundary/DST tests passed on Java 21.0.12.1 |
-| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 53 integration tests passed against PostgreSQL 18.6; 60 backend tests total |
+| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 59 integration tests passed against PostgreSQL 18.6; 66 backend tests total |
 | Same-seat concurrency repeated | PASS | 20 two-customer rounds coordinated with latches against PostgreSQL | Every round produced exactly one `201`, one `409`, one hold, and one hold item; no timing sleeps |
-| Customer-limit concurrency | NOT RUN | — | Customer-limit feature not implemented |
+| Customer-limit concurrency | NOT RUN | Sequential hold, checkout, refund, and waitlist boundary cases pass | A dedicated concurrent race at the aggregate 12-ticket boundary has not been run |
 | Promo-limit concurrency | PASS | Two latch-coordinated checkouts for the final global use | Exactly one checkout returned `201`, one returned `409`, and only one payment attempt/redemption was created |
 | Checkout/payment idempotency | PASS | 7 checkout PostgreSQL integration tests | Concurrent and sequential same-key replay created one attempt/booking; changed payload was rejected; success, decline, timeout, lookup, exact expiry, immutable price, and mass-assignment cases passed |
 | Refund idempotency/concurrency | PASS | 7 refund PostgreSQL integration tests plus 2 policy tests | Same-key replay made one attempt, changed payload was rejected, and concurrent different-key cancellation produced one `201`, one `409`, and one refund item; customer and reschedule boundaries, ownership, fee exclusion, retry, and reconciliation passed |
 | Admin inventory/event contention | PASS | 9 admin PostgreSQL integration tests | Ten latch-coordinated block-vs-hold rounds always produced one owner; held/sold blocks, draft lifecycle boundaries, unresolved-payment cancellation, invalid reasons, wrong roles, and duplicate operations left no success audit |
-| Fresh migration | PASS | `./mvnw -q test` against clean Testcontainers | Flyway created `lockstep` and applied V1 through V6 to empty PostgreSQL 18.6 databases |
-| Upgrade migrations | PASS | Testcontainers test first targets V1 in a separate schema, then runs unrestricted Flyway | Flyway detected V1 and applied V2/V3/V4/V5/V6, reaching schema version 6 |
+| Waitlist eligibility/concurrency | PASS | 6 waitlist/report PostgreSQL integration tests | Sold-out-only enrollment, section/quantity FIFO, one active entry, 15-minute exact expiry, explicit claim, bypass rejection, 12-ticket skipping, event cancellation, and ten promotion-vs-hold races passed |
+| Reconciled admin reports | PASS | Sales and occupancy integration scenario under repeatable-read transactions | Gross 1100 - succeeded refund 1000 = net 100; all 3 seats reconciled exactly across blocked, offered, and unallocated buckets; customer access was denied |
+| Fresh migration | PASS | Focused and full Testcontainers migration runs | Flyway created `lockstep` and applied V1 through V7 to empty PostgreSQL 18.6 databases |
+| Upgrade migrations | PASS | Testcontainers test first targets V1 in a separate schema, then runs unrestricted Flyway | Flyway detected V1 and applied V2/V3/V4/V5/V6/V7, reaching schema version 7 |
 | Authentication boundary | PASS | 8 MockMvc/PostgreSQL integration tests | Proved login, hashed opaque sessions, expiry, malformed tokens, inactive-account invalidation, generic failures, account/IP throttling, role denial, strict JSON, no-store responses, and request IDs |
 | Authenticated event catalog | PASS | 6 MockMvc/PostgreSQL integration tests | Proved authentication, bounded literal search, deterministic pagination, customer-visible state and retirement filtering, safe 404/validation errors, snapshot seat output, and masking of blocks/internal inventory fields |
 | Atomic seat holds | PASS | 7 MockMvc/PostgreSQL integration tests | Proved customer-only access, one-to-six unique seats, fixed ten-minute expiry, start-inclusive/end-exclusive sales, one active hold, aggregate limit, mixed-request rollback, cross-event rejection, lazy expiry/reuse, live catalog masking, and repeated contention |
 | Database-test fail-closed behavior | PASS | Focused Maven test with Docker socket inaccessible | Maven exited nonzero with 1 Testcontainers error and 0 skipped tests; PostgreSQL coverage can no longer silently disappear |
-| Authorization/horizontal access | PASS | Checkout, refund, and admin integration cases | Unrelated customers receive safe `404` for owned resources, and customer credentials receive `403` on admin operations without business or audit mutation |
+| Authorization/horizontal access | PASS | Checkout, refund, admin, waitlist, and report integration cases | Unrelated customers receive safe `404` for owned resources, customers receive `403` on admin/report operations, and rejected requests create no success audit |
 | Failure injection/recovery | NOT RUN | Success/decline/timeout/unknown and lookup pass | Process/database interruption injection and scheduled recovery worker remain unproved |
-| Audit atomicity/cardinality | PASS | Admin PostgreSQL integration tests and V6 triggers | Successful overrides created one audit row; rejected operations created none; database triggers rejected audit update and delete; event/inventory outbox writes share the operation transaction |
+| Audit atomicity/cardinality | PASS | Admin/waitlist PostgreSQL integration tests and V6 triggers | Successful overrides/promotions created one audit row; rejected operations created none; database triggers rejected audit update and delete; event/inventory/waitlist outbox writes share their operation transaction |
 | Frontend tests | PASS | `npm test -- --run` on 2026-10-15 | 1 file and 6 tests passed with Vitest 5.0.5; covered login errors, in-memory token handling, authenticated fetch, encoded search, availability rendering, and expired sessions |
 | Frontend lint | PASS | `npm run lint` on 2026-10-15 | ESLint completed with zero warnings |
 | Frontend production build | PASS | `npm run build` on 2026-10-15 | TypeScript and Vite production build completed; 17 modules transformed |
@@ -38,11 +40,11 @@ server image/version will be recorded when the local environment is created.
 | Backend dependency vulnerability scan | NOT RUN | — | Dedicated CVE scanner not run yet |
 | Container image scan | NOT RUN | — | Images build successfully; dedicated image scanner not run yet |
 | Container runtime hardening | PASS | `docker compose exec ... id` and `docker inspect` on 2026-10-15 | Backend UID 100 and frontend UID 101; both root filesystems read-only |
-| Live health and frontend headers | PASS | Local `curl` checks on ports 8081 and 3000 | Health was `UP`, info returned 401 without authentication, UI title loaded, and CSP/referrer/content-type/frame/permissions headers were present |
-| Docker Compose build and upgrade | PASS | `docker compose up --build --detach` on 2026-10-16 against the preserved volume | Packaged images built; Flyway detected V5 and applied only V6 in 11 ms; PostgreSQL and backend health were `UP`, the UI loaded, unauthenticated catalog access returned `401`, then the stack stopped with its volume preserved |
+| Live health and frontend headers | PASS | Local `curl` checks on ports 8081 and 3000 | Health was `UP`, waitlist and report routes returned `401` without authentication, UI title loaded, and prior CSP/referrer/content-type/frame/permissions header checks remain recorded |
+| Docker Compose build and upgrade | PASS | `docker compose up --build --detach` on 2026-10-16 against the preserved volume | Initial run detected V6 and applied only V7 in 12 ms; a final source rebuild validated all 8 migrations at schema version 7. PostgreSQL and backend health were `UP`, the UI loaded, unauthenticated waitlist/report access returned `401`, then the stack stopped with its volume preserved |
 | README clean-run commands | PASS | Commands executed from the new repository on 2026-10-15 | Maven verify, npm install/test/lint/build, Compose build/start, health check, and teardown behavior verified |
 | Catalog/auth runtime smoke test | PASS | Compose rebuild plus local health, UI, and unauthenticated catalog requests on 2026-10-15 | Packaged UI served the expected title, health returned `UP`, and `/api/events` returned the stable `AUTHENTICATION_REQUIRED` envelope with HTTP 401 |
-| Secret-pattern review | PASS | Focused `rg` scan of tracked source on 2026-10-15 | Matches were limited to configuration field names, redaction code, and non-secret test fixtures; no private keys or provider tokens found |
+| Secret-pattern review | PASS | Focused `rg` scan of source on 2026-10-16 | Matches were limited to password variable names, redaction code, and deliberate test-only credentials; no private keys or provider tokens found |
 
 The project is **not fully verified** while any release-blocking gate remains
 `FAIL`, `BLOCKED`, or `NOT RUN`.
@@ -50,6 +52,30 @@ The project is **not fully verified** while any release-blocking gate remains
 ## Resolved Failure History
 
 Failures remain recorded here even after their regression gates pass:
+
+- Waitlist counter review exposed an older hold-path bug: a refreshed combined
+  active-plus-confirmed total was written back into the active-hold column,
+  double-counting existing tickets. Hold and offer creation now increment only
+  the active component after the locked recount; cancellation simply retains
+  the recounted value.
+- Cross-flow review found that event cancellation closed waitlist offers but
+  did not release ordinary active holds or recount their limit rows. Event
+  cancellation now locks every live claimed seat, releases both hold classes,
+  cancels waiting/offered entries, and recounts the already-locked limits.
+
+- The first V7 waitlist run exposed PostgreSQL's inability to infer the type of
+  a null optional-section bind used in an `IS NULL` predicate. The query now
+  casts that bound value explicitly to UUID; no string interpolation or relaxed
+  validation was introduced.
+- The next exact-expiry assertion found that expiring an offer and then raising
+  the expected `409` in the same transaction rolled back the expiry marker.
+  Claim now commits lazy expiry in a separate short transaction before
+  validating the claim, so the boundary rejection leaves durable terminal
+  state without weakening seat ownership.
+- The first promotion-race assertion expected a promotion-style `200` even
+  when the competing direct hold correctly won with `201`. The assertion now
+  accepts either valid winner/status pair while still requiring one `409` and
+  exactly one durable seat owner.
 
 - The first draft-lifecycle regression run exposed that the new state guard was
   attached to seat preparation instead of rescheduling. The call sites were

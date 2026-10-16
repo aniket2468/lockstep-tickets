@@ -47,9 +47,18 @@ public class HoldRepository {
 
     void expireEventHolds(UUID eventId, Instant now) {
         jdbcClient.sql("""
+                UPDATE waitlist_entry
+                SET state = 'EXPIRED', resolved_at = offer_expires_at,
+                    updated_at = :now, version = version + 1
+                WHERE event_id = :eventId AND state = 'OFFERED'
+                  AND offer_expires_at <= :now
+                """)
+            .param("eventId", eventId).param("now", Timestamp.from(now)).update();
+        jdbcClient.sql("""
                 UPDATE seat_hold
                 SET state = 'EXPIRED', ended_at = expires_at, version = version + 1
-                WHERE event_id = :eventId AND state = 'ACTIVE' AND expires_at <= :now
+                WHERE event_id = :eventId AND state IN ('ACTIVE', 'WAITLIST_OFFER')
+                  AND expires_at <= :now
                 """)
             .param("eventId", eventId).param("now", Timestamp.from(now)).update();
     }
@@ -77,7 +86,7 @@ public class HoldRepository {
                         SELECT count(*)
                         FROM seat_hold h JOIN seat_hold_item i ON i.hold_id = h.id
                         WHERE h.account_id = l.account_id AND h.event_id = l.event_id
-                          AND ((h.state = 'ACTIVE' AND h.expires_at > :now)
+                          AND ((h.state IN ('ACTIVE', 'WAITLIST_OFFER') AND h.expires_at > :now)
                             OR h.state = 'PAYMENT_PENDING')
                     ),
                     version = version + 1
@@ -93,7 +102,7 @@ public class HoldRepository {
                 SELECT EXISTS (
                     SELECT 1 FROM seat_hold
                     WHERE account_id = :accountId AND event_id = :eventId
-                      AND ((state = 'ACTIVE' AND expires_at > :now)
+                      AND ((state IN ('ACTIVE', 'WAITLIST_OFFER') AND expires_at > :now)
                         OR state = 'PAYMENT_PENDING')
                 )
                 """)
@@ -122,7 +131,7 @@ public class HoldRepository {
                     SELECT 1
                     FROM seat_hold_item i JOIN seat_hold h ON h.id = i.hold_id
                     WHERE i.event_seat_id IN (:seatIds)
-                      AND ((h.state = 'ACTIVE' AND h.expires_at > :now)
+                      AND ((h.state IN ('ACTIVE', 'WAITLIST_OFFER') AND h.expires_at > :now)
                         OR h.state = 'PAYMENT_PENDING')
                 ) OR EXISTS (
                     SELECT 1 FROM ticket t
@@ -195,13 +204,14 @@ public class HoldRepository {
         }
     }
 
-    void setActiveCount(UUID accountId, UUID eventId, int count) {
+    void addActiveCount(UUID accountId, UUID eventId, int quantity) {
         jdbcClient.sql("""
                 UPDATE customer_event_limit
-                SET active_hold_seat_count = :count, version = version + 1
+                SET active_hold_seat_count = active_hold_seat_count + :quantity,
+                    version = version + 1
                 WHERE account_id = :accountId AND event_id = :eventId
                 """)
-            .param("count", count).param("accountId", accountId).param("eventId", eventId)
+            .param("quantity", quantity).param("accountId", accountId).param("eventId", eventId)
             .update();
     }
 

@@ -80,8 +80,10 @@ public class AdminService {
         Instant now=clock.instant();var event=repository.lockEvent(eventId).orElseThrow(ResourceNotFoundException::new);
         scheduled(event);if(repository.hasPendingPayment(eventId))
             throw conflict("EVENT_PAYMENT_PENDING","Resolve pending payments before cancelling the event.");
+        repository.expireHolds(eventId,now);
         var initial=repository.cancellableTickets(eventId);repository.lockLimits(eventId);
-        repository.lockSeats(initial.stream().map(AdminRepository.TicketRow::eventSeatId).distinct().sorted().toList());
+        var seatIds=new HashSet<UUID>();initial.stream().map(AdminRepository.TicketRow::eventSeatId).forEach(seatIds::add);
+        seatIds.addAll(repository.claimedSeatIds(eventId,now));repository.lockSeats(seatIds.stream().sorted().toList());
         repository.lockPromos(eventId);repository.lockBookings(eventId);var tickets=repository.lockTickets(eventId);
         var groups=new LinkedHashMap<UUID,List<AdminRepository.TicketRow>>();
         for(var ticket:tickets)groups.computeIfAbsent(ticket.bookingId(),ignored->new ArrayList<>()).add(ticket);
@@ -93,6 +95,7 @@ public class AdminService {
             ids.add(repository.createRefund(entry.getKey(),first.accountId(),key,
                 fingerprint("EVENT_CANCELLATION",entry.getKey(),group.stream().map(AdminRepository.TicketRow::id).toList()),
                 "EVENT_CANCELLATION",amount,fee,first.currency(),group,requested,lookup,now));}
+        repository.lockOpenHolds(eventId);repository.lockWaitlist(eventId);repository.cancelWaitlist(eventId,now);
         repository.restorePromos(eventId);repository.cancelEvent(eventId,now);
         repository.audit(actor,"EVENT_CANCELLED","EVENT",eventId,reason,event.state(),"CANCELLED",now);
         repository.outbox("EVENT",eventId,"EVENT_CANCELLED",now);return new PreparedCancellation(List.copyOf(ids));

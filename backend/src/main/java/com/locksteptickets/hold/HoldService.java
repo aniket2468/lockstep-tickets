@@ -98,7 +98,7 @@ public class HoldService {
             UUID holdId = repository.insertHold(eventId, account.accountId(),
                 promo == null ? null : promo.id(), now, expiresAt, quote);
             repository.insertItems(holdId, eventId, quote, now, expiresAt);
-            repository.setActiveCount(account.accountId(), eventId, currentTotal + seatIds.size());
+            repository.addActiveCount(account.accountId(), eventId, seatIds.size());
             return new HoldResponse(holdId, eventId, "ACTIVE", now, expiresAt, seatIds,
                 promoCode, quote.currency(), quote.subtotalMinor(), quote.discountMinor(),
                 quote.serviceFeeMinor(), quote.totalMinor(), quote.lines());
