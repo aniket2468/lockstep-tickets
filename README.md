@@ -1,9 +1,10 @@
 # Lockstep Tickets
 
 Lockstep Tickets is a correctness-first assigned-seat booking system built with
-Spring Boot, React, and PostgreSQL. The current checkpoint includes the core
-catalog schema and a secure authentication boundary; booking workflows are
-added in later incremental commits.
+Spring Boot, React, and PostgreSQL. The current checkpoint includes a secure
+authentication boundary plus authenticated event search and customer-safe seat
+availability. Seat holds and booking workflows follow in later incremental
+commits.
 
 ## Prerequisites
 
@@ -58,6 +59,11 @@ account invalidates its sessions immediately. Do not put real credentials in
 Demo initialization is insert-only and refuses identity collisions. To change
 a demo password, delete only the disposable local volume and recreate it; demo
 mode never resets, reactivates, or changes the role of an existing account.
+
+The customer UI provides the same sign-in flow, event-name search, event
+details, and seat map at <http://localhost:3000>. It deliberately keeps the
+access token only in memory, so refreshing or closing the page signs the user
+out locally.
 
 Stop the application while preserving local database data:
 
@@ -130,6 +136,10 @@ The Vite development server is available at <http://localhost:5173> and proxies
   is inactive. PostgreSQL-backed account and source-IP throttles bound login
   attempts and return `429` plus `Retry-After`. Request bodies reject unknown
   fields and scalar coercion.
+- `GET /api/events` and `GET /api/events/{eventId}` require authentication.
+  Search is literal and bounded, pagination is bounded, retired/draft/internal
+  event states are hidden, and seat inventory is exposed only as `AVAILABLE`
+  or `UNAVAILABLE` so blocks and ownership details cannot leak.
 - Backend and frontend containers run as non-root with read-only root filesystems.
 
 See [NOTES.md](NOTES.md) for accepted rules and architecture decisions, and

@@ -234,15 +234,15 @@ Refund bands compare elapsed instants to the resolved event-start instant, so a
 
 ## Known Gaps and Evidence Status
 
-The catalog/authentication checkpoint is implemented and its executed evidence
+The authenticated catalog checkpoint is implemented and its executed evidence
 is recorded in `docs/VERIFICATION.md`. Booking ownership cannot yet be tested
-because booking resources do not exist. Explicit logout, session/throttle-row
-cleanup, production-profile startup guards, a restricted production database
-role, transactional workflows, audit/outbox behavior, browser flows, and
-backend/container vulnerability scans remain release gaps. HTTPS is an edge/
-deployment responsibility; bearer tokens must never cross plaintext or be
-stored in browser local storage. Concurrency claims remain `NOT RUN` until the
-inventory workflows exist.
+because booking resources do not exist. Explicit server-side logout,
+session/throttle-row cleanup, production-profile startup guards, a restricted
+production database role, transactional workflows, audit/outbox behavior,
+browser end-to-end automation, and backend/container vulnerability scans remain
+release gaps. HTTPS is an edge/deployment responsibility; bearer tokens must
+never cross plaintext or be stored in browser local storage. Concurrency claims
+remain `NOT RUN` until the inventory workflows exist.
 
 ## AI Assistance Disclosure
 
@@ -278,4 +278,13 @@ checkpoint now has PostgreSQL-backed normalized-account and source-IP login
 throttles, insert-only demo identities that fail on collisions, database tests
 that fail when Docker is unavailable, admin-only non-health actuator policy,
 and documentation that separates implemented controls from production work.
+
+For the authenticated catalog checkpoint, Codex added bounded, parameterized
+event search and detail endpoints, customer-visible lifecycle filtering, and an
+event-seat response that masks blocks and all internal inventory ownership as
+`UNAVAILABLE`. It also replaced the placeholder UI with an accessible login,
+catalog search, event detail, and seat map flow. Bearer tokens remain in React
+memory only. Six real-PostgreSQL API tests and six frontend behavior tests cover
+the new boundary; the complete backend suite contains 24 tests, 23 of which use
+PostgreSQL 18.6.
 
