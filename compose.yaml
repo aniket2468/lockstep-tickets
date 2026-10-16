@@ -27,6 +27,11 @@ services:
       DB_URL: jdbc:postgresql://database:5432/${LOCKSTEP_DB_NAME:-lockstep}
       DB_USERNAME: ${LOCKSTEP_DB_USER:-lockstep_app}
       DB_PASSWORD: ${LOCKSTEP_DB_PASSWORD:-lockstep-local-only}
+      SPRING_PROFILES_ACTIVE: ${LOCKSTEP_SPRING_PROFILES_ACTIVE:-}
+      LOCKSTEP_DEMO_CUSTOMER_EMAIL: ${LOCKSTEP_DEMO_CUSTOMER_EMAIL:-customer@lockstep.test}
+      LOCKSTEP_DEMO_CUSTOMER_PASSWORD: ${LOCKSTEP_DEMO_CUSTOMER_PASSWORD:-}
+      LOCKSTEP_DEMO_ADMIN_EMAIL: ${LOCKSTEP_DEMO_ADMIN_EMAIL:-admin@lockstep.test}
+      LOCKSTEP_DEMO_ADMIN_PASSWORD: ${LOCKSTEP_DEMO_ADMIN_PASSWORD:-}
     depends_on:
       database:
         condition: service_healthy

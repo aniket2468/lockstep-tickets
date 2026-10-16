@@ -1,9 +1,9 @@
 # Lockstep Tickets
 
 Lockstep Tickets is a correctness-first assigned-seat booking system built with
-Spring Boot, React, and PostgreSQL. The current checkpoint establishes the
-secure, reproducible project foundation; booking workflows are added in later
-incremental commits.
+Spring Boot, React, and PostgreSQL. The current checkpoint includes the core
+catalog schema and a secure authentication boundary; booking workflows are
+added in later incremental commits.
 
 ## Prerequisites
 
@@ -25,8 +25,39 @@ Wait for the database to become healthy and the backend to start, then open:
 - Customer UI: <http://localhost:3000>
 - Backend health: <http://localhost:8081/actuator/health>
 
-The expected health response is `{"status":"UP"}`. All non-health backend
-routes are denied until their authenticated API slices are implemented.
+The expected health status is `UP`. Application routes require a database-backed
+bearer session, except for the login endpoint.
+
+### Optional demo data
+
+Demo accounts and catalog data are never created by default. To opt in, copy
+`.env.example` to the ignored `.env` file, set two unique passwords of at least
+12 characters, and set:
+
+```dotenv
+LOCKSTEP_SPRING_PROFILES_ACTIVE=demo
+LOCKSTEP_DEMO_CUSTOMER_PASSWORD=choose-a-local-password
+LOCKSTEP_DEMO_ADMIN_PASSWORD=choose-another-local-password
+```
+
+Start Compose, then authenticate using `customer@lockstep.test` or
+`admin@lockstep.test` and the password you chose:
+
+```bash
+curl --fail-with-body \
+  --header 'Content-Type: application/json' \
+  --data '{"email":"customer@lockstep.test","password":"YOUR_PASSWORD"}' \
+  http://localhost:8081/api/auth/login
+```
+
+The response contains a short-lived opaque bearer token. Only its SHA-256 hash
+is stored, the response is marked `Cache-Control: no-store`, and disabling an
+account invalidates its sessions immediately. Do not put real credentials in
+`.env.example`, Compose files, source code, or Git history.
+
+Demo initialization is insert-only and refuses identity collisions. To change
+a demo password, delete only the disposable local volume and recreate it; demo
+mode never resets, reactivates, or changes the role of an existing account.
 
 Stop the application while preserving local database data:
 
@@ -64,9 +95,10 @@ export DB_PASSWORD=lockstep-local-only
 ./mvnw spring-boot:run
 ```
 
-The integration tests use Testcontainers and therefore require Docker.
-Flyway runs automatically and owns all schema changes. Hibernate automatic
-schema creation is not used.
+The integration tests use Testcontainers and therefore require Docker. Maven
+verification fails rather than silently skipping PostgreSQL tests when Docker
+is unavailable. Flyway runs automatically and owns all schema changes.
+Hibernate automatic schema creation is not used.
 
 ## Frontend development
 
@@ -88,9 +120,16 @@ The Vite development server is available at <http://localhost:5173> and proxies
   `DB_PASSWORD`; the application has no embedded password fallback.
 - Bind-mounting `.env` is unnecessary. Copy `.env.example` to `.env` only when
   overriding local Compose values; `.env` files are ignored by Git.
-- Actuator exposes only redacted health and info endpoints.
-- The application is stateless and all application routes currently default to
-  deny. Authentication is introduced with the first user-facing API slice.
+- Actuator exposes redacted health publicly; other actuator routes require
+  authentication and are not exposed beyond the configured allowlist.
+- Authentication uses 32-byte opaque bearer tokens with only SHA-256 hashes in
+  PostgreSQL, a maximum 24-hour configurable lifetime (30 minutes by default),
+  BCrypt password hashes, live active-account checks, exact-origin CORS, and
+  server-derived IDs and roles.
+- Invalid credentials deliberately do not reveal whether an account exists or
+  is inactive. PostgreSQL-backed account and source-IP throttles bound login
+  attempts and return `429` plus `Retry-After`. Request bodies reject unknown
+  fields and scalar coercion.
 - Backend and frontend containers run as non-root with read-only root filesystems.
 
 See [NOTES.md](NOTES.md) for accepted rules and architecture decisions, and

@@ -204,14 +204,14 @@ Refund bands compare elapsed instants to the resolved event-start instant, so a
   states, refund amounts, and audit actors supplied by clients are ignored or
   rejected; resource ownership is resolved server-side.
 - Endpoint authorization covers unauthenticated, wrong-role, inactive-account,
-  unrelated-customer, and admin cases. Unauthorized attempts produce no
-  business mutation or success audit.
+  and admin cases now; each owned-resource slice must add unrelated-customer
+  tests. Unauthorized attempts produce no business mutation or success audit.
 - JSON parsing rejects unknown fields and coercion. DTO bounds, body limits,
   allowlisted CORS, rate limiting on abuse-prone routes, request IDs, safe error
   bodies, and redacted structured logs reduce the exposed attack surface.
-- SQL uses bound parameters. Containers run as non-root. Production startup
-  rejects missing/insecure secrets, disables demo/debug features, and uses a
-  restricted database role. Audit history is append-only to the application.
+- SQL uses bound parameters. Containers run as non-root. A production release
+  must add startup guards for demo/debug settings and use a separately managed,
+  restricted database role. Audit history will be append-only to the application.
 - Dependency and container vulnerability results will be recorded honestly;
   unexplained critical findings block a readiness claim.
 
@@ -234,10 +234,15 @@ Refund bands compare elapsed instants to the resolved event-start instant, so a
 
 ## Known Gaps and Evidence Status
 
-No application code exists at this checkpoint. All implementation and release
-claims are `NOT RUN`; see `docs/VERIFICATION.md`. In particular, no concurrency,
-authorization, migration, dependency, frontend, or Docker behavior has yet
-been proved.
+The catalog/authentication checkpoint is implemented and its executed evidence
+is recorded in `docs/VERIFICATION.md`. Booking ownership cannot yet be tested
+because booking resources do not exist. Explicit logout, session/throttle-row
+cleanup, production-profile startup guards, a restricted production database
+role, transactional workflows, audit/outbox behavior, browser flows, and
+backend/container vulnerability scans remain release gaps. HTTPS is an edge/
+deployment responsibility; bearer tokens must never cross plaintext or be
+stored in browser local storage. Concurrency claims remain `NOT RUN` until the
+inventory workflows exist.
 
 ## AI Assistance Disclosure
 
@@ -258,4 +263,19 @@ corrected when execution exposed a TypeScript/tooling peer conflict, Spring Boot
 4 module changes, PostgreSQL 18 volume semantics, and a local port collision.
 No peer-dependency check or failed test was bypassed. The developer is expected
 to review the resulting files and rerun the documented gates before committing.
+
+For the catalog/authentication checkpoint, Codex added the constrained catalog
+and opaque-session schema, explicit demo-only fixtures, BCrypt login, live
+account/role enforcement, request IDs, stable safe errors, and PostgreSQL-backed
+authorization tests. The first real database run exposed an unset JDBC schema;
+the datasource now selects `lockstep` explicitly. Test logging also exposed
+that generated record strings could contain login secrets, so the login DTOs
+now redact passwords and tokens. Both findings are retained in the verification
+history rather than being hidden.
+
+A dedicated security review then identified five additional issues. The
+checkpoint now has PostgreSQL-backed normalized-account and source-IP login
+throttles, insert-only demo identities that fail on collisions, database tests
+that fail when Docker is unavailable, admin-only non-health actuator policy,
+and documentation that separates implemented controls from production work.
 

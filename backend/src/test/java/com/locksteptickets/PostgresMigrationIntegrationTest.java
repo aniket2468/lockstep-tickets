@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import javax.sql.DataSource;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,7 +27,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 class PostgresMigrationIntegrationTest {
 
     @Container
@@ -64,7 +65,29 @@ class PostgresMigrationIntegrationTest {
             assertThat(result.getString(1)).isEqualTo(POSTGRES.getDatabaseName());
         }
 
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("1");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
+    }
+
+    @Test
+    void upgradesAnExistingV1SchemaToV2() {
+        Flyway baseline = Flyway.configure()
+            .dataSource(dataSource)
+            .schemas("lockstep_upgrade")
+            .defaultSchema("lockstep_upgrade")
+            .createSchemas(true)
+            .target(MigrationVersion.fromVersion("1"))
+            .load();
+        baseline.migrate();
+        assertThat(baseline.info().current().getVersion().getVersion()).isEqualTo("1");
+
+        Flyway upgrade = Flyway.configure()
+            .dataSource(dataSource)
+            .schemas("lockstep_upgrade")
+            .defaultSchema("lockstep_upgrade")
+            .createSchemas(true)
+            .load();
+        upgrade.migrate();
+        assertThat(upgrade.info().current().getVersion().getVersion()).isEqualTo("2");
     }
 
     @Test
@@ -75,13 +98,18 @@ class PostgresMigrationIntegrationTest {
             .andExpect(jsonPath("$.components").doesNotExist());
 
         mockMvc.perform(get("/actuator/info"))
-            .andExpect(status().isForbidden());
+            .andExpect(status().isUnauthorized())
+            .andExpect(jsonPath("$.error.code").value("AUTHENTICATION_REQUIRED"));
     }
 
     @Test
     void doesNotGenerateADevelopmentUser() {
         assertThat(applicationContext.getBeanNamesForType(UserDetailsService.class))
             .isEmpty();
+        assertThat(org.springframework.jdbc.core.simple.JdbcClient.create(dataSource)
+            .sql("SELECT count(*) FROM account")
+            .query(Long.class)
+            .single()).isZero();
     }
 }
 

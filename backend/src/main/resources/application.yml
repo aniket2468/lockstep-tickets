@@ -11,6 +11,7 @@ spring:
       connection-timeout: 3000
       maximum-pool-size: 10
       minimum-idle: 1
+      schema: lockstep
       validation-timeout: 1000
   flyway:
     clean-disabled: true
@@ -20,6 +21,8 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: true
+    mapper:
+      allow-coercion-of-scalars: false
   lifecycle:
     timeout-per-shutdown-phase: 20s
 
@@ -40,9 +43,24 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health
   endpoint:
     health:
       show-components: never
       show-details: never
+
+lockstep:
+  authentication:
+    session-ttl: ${LOCKSTEP_SESSION_TTL:PT30M}
+    throttle-window: ${LOCKSTEP_LOGIN_THROTTLE_WINDOW:PT15M}
+    throttle-duration: ${LOCKSTEP_LOGIN_THROTTLE_DURATION:PT15M}
+    account-max-failures: ${LOCKSTEP_LOGIN_ACCOUNT_MAX_FAILURES:5}
+    ip-max-failures: ${LOCKSTEP_LOGIN_IP_MAX_FAILURES:30}
+  cors:
+    allowed-origins: ${LOCKSTEP_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+  demo:
+    customer-email: ${LOCKSTEP_DEMO_CUSTOMER_EMAIL:customer@lockstep.test}
+    customer-password: ${LOCKSTEP_DEMO_CUSTOMER_PASSWORD:}
+    admin-email: ${LOCKSTEP_DEMO_ADMIN_EMAIL:admin@lockstep.test}
+    admin-password: ${LOCKSTEP_DEMO_ADMIN_PASSWORD:}
 
