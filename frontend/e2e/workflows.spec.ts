@@ -17,7 +17,7 @@ async function mockApi(page: Page, role: 'CUSTOMER' | 'ADMIN') {
     let body: unknown
     let status = 200
     if (path === '/api/auth/login') {
-      body = { accessToken: 'browser-token', expiresAt: '2030-01-01T00:00:00Z', account: { id: 'account-1', email: `${role.toLowerCase()}@example.com`, role } }
+      body = { expiresAt: '2030-01-01T00:00:00Z', account: { id: 'account-1', email: `${role.toLowerCase()}@example.com`, role } }
     } else if (path === '/api/events') {
       body = { items: [event], limit: 20, offset: 0, hasMore: false }
     } else if (path === '/api/events/event-1') {

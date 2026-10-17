@@ -14,6 +14,8 @@ test('customer books and refunds a real seat through the live stack', async ({ p
   await page.getByRole('button', { name: 'Sign in' }).click()
 
   await expect(page.getByRole('heading', { name: 'Choose an event.' })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Choose an event.' })).toBeVisible()
   await page.getByLabel('Search events').fill('Lockstep Demo')
   await page.getByRole('button', { name: 'Search' }).click()
 

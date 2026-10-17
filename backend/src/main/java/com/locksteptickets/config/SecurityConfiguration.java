@@ -5,6 +5,7 @@ import java.util.List;
 import com.locksteptickets.api.ApiError;
 import com.locksteptickets.api.RequestIdFilter;
 import com.locksteptickets.auth.BearerAuthenticationFilter;
+import com.locksteptickets.auth.CookieCsrfFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -30,6 +31,7 @@ public class SecurityConfiguration {
     SecurityFilterChain securityFilterChain(
         HttpSecurity http,
         BearerAuthenticationFilter bearerAuthenticationFilter,
+        CookieCsrfFilter cookieCsrfFilter,
         ObjectMapper objectMapper
     ) throws Exception {
         return http
@@ -62,6 +64,7 @@ public class SecurityConfiguration {
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .addFilterBefore(bearerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(cookieCsrfFilter, BearerAuthenticationFilter.class)
             .build();
     }
 
@@ -78,7 +81,8 @@ public class SecurityConfiguration {
         configuration.setAllowedOrigins(allowedOrigins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of(
-            "Authorization", "Content-Type", "Idempotency-Key", RequestIdFilter.HEADER));
+            "Authorization", "Content-Type", "Idempotency-Key", "X-CSRF-Token",
+            RequestIdFilter.HEADER));
         configuration.setExposedHeaders(List.of(RequestIdFilter.HEADER));
         configuration.setAllowCredentials(false);
         configuration.setMaxAge(3600L);

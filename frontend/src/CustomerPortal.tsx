@@ -28,7 +28,7 @@ import {
 import { ErrorPanel, Loading, StatusBadge, SuccessPanel } from './ui'
 import { errorMessage, formText, formatDate, formatMinor, isAbort, newIdempotencyKey } from './utils'
 
-type Props = { token: string; onLogout: () => void }
+type Props = { onLogout: () => void }
 type Tab = 'events' | 'bookings' | 'waitlist'
 
 function unauthorized(error: unknown, onLogout: () => void) {
@@ -39,7 +39,7 @@ function unauthorized(error: unknown, onLogout: () => void) {
   return false
 }
 
-export function CustomerPortal({ token, onLogout }: Props) {
+export function CustomerPortal({ onLogout }: Props) {
   const [tab, setTab] = useState<Tab>('events')
   return (
     <>
@@ -50,14 +50,14 @@ export function CustomerPortal({ token, onLogout }: Props) {
           </button>
         ))}
       </nav>
-      {tab === 'events' && <EventBrowser token={token} onLogout={onLogout} onBooked={() => setTab('bookings')} />}
-      {tab === 'bookings' && <Bookings token={token} onLogout={onLogout} />}
-      {tab === 'waitlist' && <Waitlist token={token} onLogout={onLogout} onBooked={() => setTab('bookings')} />}
+      {tab === 'events' && <EventBrowser onLogout={onLogout} onBooked={() => setTab('bookings')} />}
+      {tab === 'bookings' && <Bookings onLogout={onLogout} />}
+      {tab === 'waitlist' && <Waitlist onLogout={onLogout} onBooked={() => setTab('bookings')} />}
     </>
   )
 }
 
-function EventBrowser({ token, onLogout, onBooked }: Props & { onBooked: () => void }) {
+function EventBrowser({ onLogout, onBooked }: Props & { onBooked: () => void }) {
   const [events, setEvents] = useState<EventSummary[]>([])
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
@@ -74,8 +74,8 @@ function EventBrowser({ token, onLogout, onBooked }: Props & { onBooked: () => v
   useEffect(() => {
     const controller = new AbortController()
     const operation = selectedId
-      ? getEvent(token, selectedId, controller.signal)
-      : listEvents(token, submittedQuery, controller.signal)
+      ? getEvent(selectedId, controller.signal)
+      : listEvents(submittedQuery, controller.signal)
     operation.then((result) => {
       if ('seats' in result) setDetail(result)
       else setEvents(result.items)
@@ -86,7 +86,7 @@ function EventBrowser({ token, onLogout, onBooked }: Props & { onBooked: () => v
       if (!controller.signal.aborted) setLoading(false)
     })
     return () => controller.abort()
-  }, [onLogout, retryKey, selectedId, submittedQuery, token])
+  }, [onLogout, retryKey, selectedId, submittedQuery])
 
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -139,7 +139,7 @@ function EventBrowser({ token, onLogout, onBooked }: Props & { onBooked: () => v
     setSuccess('')
     const data = new FormData(event.currentTarget)
     try {
-      const result = await createHold(token, detail.id, selectedSeats, formText(data, 'promoCode'))
+      const result = await createHold(detail.id, selectedSeats, formText(data, 'promoCode'))
       setHold(result)
       setSuccess('Your seats are held. Complete checkout before the server deadline.')
     } catch (cause) {
@@ -156,7 +156,7 @@ function EventBrowser({ token, onLogout, onBooked }: Props & { onBooked: () => v
     setError('')
     const quantity = Number(new FormData(event.currentTarget).get('quantity'))
     try {
-      await joinWaitlist(token, detail.id, quantity)
+      await joinWaitlist(detail.id, quantity)
       setSuccess('You joined the waitlist. Offers must be claimed within 15 minutes.')
     } catch (cause) {
       if (!unauthorized(cause, onLogout)) setError(errorMessage(cause))
@@ -176,7 +176,7 @@ function EventBrowser({ token, onLogout, onBooked }: Props & { onBooked: () => v
           {detail && !loading && (
             <EventDetailView event={detail} selectedSeats={selectedSeats} onToggle={toggleSeat}>
               {hold ? (
-                <CheckoutPanel token={token} hold={hold} onLogout={onLogout} onBooked={onBooked} />
+                <CheckoutPanel hold={hold} onLogout={onLogout} onBooked={onBooked} />
               ) : selectedSeats.length > 0 ? (
                 <form className="action-card" onSubmit={(event) => void holdSeats(event)}>
                   <h2>Hold {selectedSeats.length} {selectedSeats.length === 1 ? 'seat' : 'seats'}</h2>
@@ -274,7 +274,7 @@ function EventDetailView({ event, selectedSeats, onToggle, children }: {
   )
 }
 
-function CheckoutPanel({ token, hold, onLogout, onBooked }: Props & { hold: Hold | WaitlistClaim; onBooked: () => void }) {
+function CheckoutPanel({ hold, onLogout, onBooked }: Props & { hold: Hold | WaitlistClaim; onBooked: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [booking, setBooking] = useState<Booking | null>(null)
@@ -286,7 +286,7 @@ function CheckoutPanel({ token, hold, onLogout, onBooked }: Props & { hold: Hold
     setBusy(true)
     setError('')
     try {
-      setBooking(await checkout(token, 'id' in hold ? hold.id : hold.holdId, key))
+      setBooking(await checkout('id' in hold ? hold.id : hold.holdId, key))
     } catch (cause) {
       if (!unauthorized(cause, onLogout)) setError(errorMessage(cause))
     } finally {
@@ -299,7 +299,7 @@ function CheckoutPanel({ token, hold, onLogout, onBooked }: Props & { hold: Hold
     setBusy(true)
     setError('')
     try {
-      setBooking(await reconcileBooking(token, booking.id))
+      setBooking(await reconcileBooking(booking.id))
     } catch (cause) {
       if (!unauthorized(cause, onLogout)) setError(errorMessage(cause))
     } finally {
@@ -336,7 +336,7 @@ function CheckoutPanel({ token, hold, onLogout, onBooked }: Props & { hold: Hold
   )
 }
 
-function Bookings({ token, onLogout }: Props) {
+function Bookings({ onLogout }: Props) {
   const [items, setItems] = useState<Booking[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<BookingDetail | null>(null)
@@ -355,7 +355,7 @@ function Bookings({ token, onLogout }: Props) {
   }, [])
   useEffect(() => {
     const controller = new AbortController()
-    const operation = selectedId ? getBooking(token, selectedId, controller.signal) : listBookings(token, controller.signal)
+    const operation = selectedId ? getBooking(selectedId, controller.signal) : listBookings(controller.signal)
     operation.then((result) => {
       if (Array.isArray(result)) setItems(result)
       else setDetail(result)
@@ -366,7 +366,7 @@ function Bookings({ token, onLogout }: Props) {
       if (!controller.signal.aborted) setLoading(false)
     })
     return () => controller.abort()
-  }, [onLogout, retryKey, selectedId, token])
+  }, [onLogout, retryKey, selectedId])
 
   function open(id: string) {
     setLoading(true)
@@ -384,7 +384,7 @@ function Bookings({ token, onLogout }: Props) {
     setBusy(true)
     setError('')
     try {
-      const result = await cancelTickets(token, detail.id, selectedTickets, idempotencyKey)
+      const result = await cancelTickets(detail.id, selectedTickets, idempotencyKey)
       setRefund(result)
       load()
     } catch (cause) {
@@ -400,8 +400,8 @@ function Bookings({ token, onLogout }: Props) {
     setError('')
     try {
       setRefund(action === 'reconcile'
-        ? await reconcileRefund(token, refund.id)
-        : await retryRefund(token, refund.id, idempotencyKey))
+        ? await reconcileRefund(refund.id)
+        : await retryRefund(refund.id, idempotencyKey))
       load()
     } catch (cause) {
       if (!unauthorized(cause, onLogout)) setError(errorMessage(cause))
@@ -444,7 +444,7 @@ function Bookings({ token, onLogout }: Props) {
   )
 }
 
-function Waitlist({ token, onLogout, onBooked }: Props & { onBooked: () => void }) {
+function Waitlist({ onLogout, onBooked }: Props & { onBooked: () => void }) {
   const [entries, setEntries] = useState<WaitlistEntry[]>([])
   const [claim, setClaim] = useState<WaitlistClaim | null>(null)
   const [loading, setLoading] = useState(true)
@@ -454,20 +454,20 @@ function Waitlist({ token, onLogout, onBooked }: Props & { onBooked: () => void 
 
   useEffect(() => {
     const controller = new AbortController()
-    listWaitlist(token, controller.signal).then(setEntries).catch((cause: unknown) => {
+    listWaitlist(controller.signal).then(setEntries).catch((cause: unknown) => {
       if (isAbort(cause) || unauthorized(cause, onLogout)) return
       setError(errorMessage(cause))
     }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [onLogout, retryKey, token])
+  }, [onLogout, retryKey])
 
   async function act(entry: WaitlistEntry, action: 'claim' | 'cancel') {
     if (busyId) return
     setBusyId(entry.id)
     setError('')
     try {
-      if (action === 'claim') setClaim(await claimWaitlist(token, entry.id))
-      else await cancelWaitlist(token, entry.id)
+      if (action === 'claim') setClaim(await claimWaitlist(entry.id))
+      else await cancelWaitlist(entry.id)
       setRetryKey((value) => value + 1)
     } catch (cause) {
       if (!unauthorized(cause, onLogout)) setError(errorMessage(cause))
@@ -481,7 +481,7 @@ function Waitlist({ token, onLogout, onBooked }: Props & { onBooked: () => void 
       <p className="eyebrow">Customer</p><h1 id="waitlist-heading">My waitlist</h1>
       {loading && <Loading>Loading waitlist…</Loading>}
       {error && <ErrorPanel message={error} retry={() => { setLoading(true); setError(''); setRetryKey((value) => value + 1) }} />}
-      {claim && <CheckoutPanel token={token} hold={claim} onLogout={onLogout} onBooked={onBooked} />}
+      {claim && <CheckoutPanel hold={claim} onLogout={onLogout} onBooked={onBooked} />}
       {!loading && !error && entries.length === 0 && <p className="empty">You have no waitlist entries.</p>}
       {!loading && entries.length > 0 && <div className="stack-list">{entries.map((entry) => (
         <article className="list-card" key={entry.id}>

@@ -21,7 +21,7 @@ import {
 import { ErrorPanel, Loading, StatusBadge, SuccessPanel } from './ui'
 import { errorMessage, formText, formatDate, formatMinor, isAbort, newIdempotencyKey } from './utils'
 
-type Props = { token: string; onLogout: () => void }
+type Props = { onLogout: () => void }
 type Tab = 'operations' | 'refunds' | 'audit'
 
 function unauthorized(error: unknown, onLogout: () => void) {
@@ -32,7 +32,7 @@ function unauthorized(error: unknown, onLogout: () => void) {
   return false
 }
 
-export function AdminPortal({ token, onLogout }: Props) {
+export function AdminPortal({ onLogout }: Props) {
   const [tab, setTab] = useState<Tab>('operations')
   return (
     <>
@@ -43,14 +43,14 @@ export function AdminPortal({ token, onLogout }: Props) {
           </button>
         ))}
       </nav>
-      {tab === 'operations' && <EventOperations token={token} onLogout={onLogout} />}
-      {tab === 'refunds' && <ExceptionalRefund token={token} onLogout={onLogout} />}
-      {tab === 'audit' && <Audit token={token} onLogout={onLogout} />}
+      {tab === 'operations' && <EventOperations onLogout={onLogout} />}
+      {tab === 'refunds' && <ExceptionalRefund onLogout={onLogout} />}
+      {tab === 'audit' && <Audit onLogout={onLogout} />}
     </>
   )
 }
 
-function EventOperations({ token, onLogout }: Props) {
+function EventOperations({ onLogout }: Props) {
   const [events, setEvents] = useState<EventSummary[]>([])
   const [eventId, setEventId] = useState('')
   const [detail, setDetail] = useState<EventDetail | null>(null)
@@ -67,11 +67,11 @@ function EventOperations({ token, onLogout }: Props) {
     const controller = new AbortController()
     const reads = eventId
       ? Promise.all([
-          getEvent(token, eventId, controller.signal),
-          getSalesReport(token, eventId, controller.signal),
-          getOccupancyReport(token, eventId, controller.signal),
+          getEvent(eventId, controller.signal),
+          getSalesReport(eventId, controller.signal),
+          getOccupancyReport(eventId, controller.signal),
         ])
-      : listEvents(token, '', controller.signal)
+      : listEvents('', controller.signal)
     reads.then((result) => {
       if (Array.isArray(result)) {
         setDetail(result[0])
@@ -85,7 +85,7 @@ function EventOperations({ token, onLogout }: Props) {
       setError(errorMessage(cause))
     }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [eventId, onLogout, retryKey, token])
+  }, [eventId, onLogout, retryKey])
 
   async function operation(label: string, action: () => Promise<unknown>) {
     if (busy) return
@@ -116,7 +116,7 @@ function EventOperations({ token, onLogout }: Props) {
       setError('Enter a valid ISO 8601 date and time with an offset or Z suffix.')
       return
     }
-    void operation('Event rescheduled and audited.', () => rescheduleEvent(token, detail?.id ?? '', parsed.toISOString(), reason(form)))
+    void operation('Event rescheduled and audited.', () => rescheduleEvent(detail?.id ?? '', parsed.toISOString(), reason(form)))
   }
 
   return (
@@ -135,7 +135,7 @@ function EventOperations({ token, onLogout }: Props) {
           <div className="section-heading"><div><h2>{detail.name}</h2><p>{formatDate(detail.startsAt, detail.timeZone)} · {detail.venue.name}</p></div><StatusBadge>{detail.state.replaceAll('_', ' ')}</StatusBadge></div>
           {sales && occupancy && <Reports sales={sales} occupancy={occupancy} />}
           <div className="admin-grid">
-            <form className="action-card" onSubmit={(event) => { event.preventDefault(); const action = formText(new FormData(event.currentTarget), 'seatAction') as 'block' | 'release'; void operation(`Seat ${action} completed and audited.`, () => mutateSeat(token, detail.id, seatId, action, reason(event.currentTarget))) }}>
+            <form className="action-card" onSubmit={(event) => { event.preventDefault(); const action = formText(new FormData(event.currentTarget), 'seatAction') as 'block' | 'release'; void operation(`Seat ${action} completed and audited.`, () => mutateSeat(detail.id, seatId, action, reason(event.currentTarget))) }}>
               <h2>Seat inventory</h2>
               <label htmlFor="admin-seat">Seat</label>
               <select id="admin-seat" value={seatId} onChange={(event) => setSeatId(event.target.value)} required>
@@ -158,14 +158,14 @@ function EventOperations({ token, onLogout }: Props) {
               <button type="submit" disabled={busy}>{busy ? 'Applying once…' : 'Reschedule event'}</button>
             </form>
 
-            <form className="action-card" onSubmit={(event) => { event.preventDefault(); void operation('A FIFO waitlist offer was created and audited.', () => promoteWaitlist(token, detail.id, reason(event.currentTarget))) }}>
+            <form className="action-card" onSubmit={(event) => { event.preventDefault(); void operation('A FIFO waitlist offer was created and audited.', () => promoteWaitlist(detail.id, reason(event.currentTarget))) }}>
               <h2>Promote waitlist</h2>
               <p>The server chooses the earliest currently eligible entry and reserves its seats for 15 minutes.</p>
               <ReasonInput id="promotion-reason" />
               <button type="submit" disabled={busy}>{busy ? 'Promoting once…' : 'Promote next eligible entry'}</button>
             </form>
 
-            <form className="action-card danger-zone" onSubmit={(event) => { event.preventDefault(); void operation('Event cancellation completed and audited.', () => cancelEvent(token, detail.id, reason(event.currentTarget))) }}>
+            <form className="action-card danger-zone" onSubmit={(event) => { event.preventDefault(); void operation('Event cancellation completed and audited.', () => cancelEvent(detail.id, reason(event.currentTarget))) }}>
               <h2>Cancel event</h2>
               <p>This closes sales and attempts full refunds, including allocated fees.</p>
               <ReasonInput id="cancel-reason" />
@@ -208,7 +208,7 @@ function Reports({ sales, occupancy }: { sales: SalesReport; occupancy: Occupanc
   )
 }
 
-function ExceptionalRefund({ token, onLogout }: Props) {
+function ExceptionalRefund({ onLogout }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -223,7 +223,7 @@ function ExceptionalRefund({ token, onLogout }: Props) {
     const data = new FormData(event.currentTarget)
     const ticketIds = formText(data, 'ticketIds').split(',').map((value) => value.trim()).filter(Boolean)
     try {
-      const result = await exceptionalRefund(token, formText(data, 'bookingId').trim(), ticketIds, key,
+      const result = await exceptionalRefund(formText(data, 'bookingId').trim(), ticketIds, key,
         formText(data, 'reason').trim())
       setSuccess(`Exceptional refund is ${result.state.toLowerCase().replaceAll('_', ' ')}.`)
       setKey(newIdempotencyKey())
@@ -250,19 +250,19 @@ function ExceptionalRefund({ token, onLogout }: Props) {
   )
 }
 
-function Audit({ token, onLogout }: Props) {
+function Audit({ onLogout }: Props) {
   const [rows, setRows] = useState<AuditRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [retryKey, setRetryKey] = useState(0)
   useEffect(() => {
     const controller = new AbortController()
-    getAudit(token, controller.signal).then(setRows).catch((cause: unknown) => {
+    getAudit(controller.signal).then(setRows).catch((cause: unknown) => {
       if (isAbort(cause) || unauthorized(cause, onLogout)) return
       setError(errorMessage(cause))
     }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [onLogout, retryKey, token])
+  }, [onLogout, retryKey])
 
   return (
     <section className="content" aria-labelledby="audit-heading">

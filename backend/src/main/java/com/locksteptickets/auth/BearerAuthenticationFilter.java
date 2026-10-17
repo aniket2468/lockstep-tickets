@@ -24,10 +24,13 @@ public class BearerAuthenticationFilter extends OncePerRequestFilter {
 
     private final AccessSessionRepository sessions;
     private final Clock clock;
+    private final SessionCookieService cookies;
 
-    public BearerAuthenticationFilter(AccessSessionRepository sessions, Clock clock) {
+    public BearerAuthenticationFilter(AccessSessionRepository sessions, Clock clock,
+                                      SessionCookieService cookies) {
         this.sessions = sessions;
         this.clock = clock;
+        this.cookies = cookies;
     }
 
     @Override
@@ -39,16 +42,28 @@ public class BearerAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader(HttpHeaders.AUTHORIZATION);
         if (header != null && header.startsWith(PREFIX)) {
             String token = header.substring(PREFIX.length());
-            if (TOKEN_FORMAT.matcher(token).matches()) {
-                sessions.findActive(TokenDigester.sha256(token), clock.instant())
-                    .ifPresent(session -> authenticate(session, token));
-            }
+            authenticateToken(token, false, request);
+        } else {
+            authenticateToken(cookies.sessionToken(request), true, request);
         }
         try {
             filterChain.doFilter(request, response);
         } finally {
             SecurityContextHolder.clearContext();
         }
+    }
+
+    private void authenticateToken(String token, boolean cookieAuthentication,
+                                   HttpServletRequest request) {
+        if (token == null || !TOKEN_FORMAT.matcher(token).matches()) {
+            return;
+        }
+        sessions.findActive(TokenDigester.sha256(token), clock.instant()).ifPresent(session -> {
+            authenticate(session, token);
+            if (cookieAuthentication) {
+                request.setAttribute(CookieCsrfFilter.COOKIE_AUTHENTICATED, true);
+            }
+        });
     }
 
     private void authenticate(AccessSessionRepository.SessionAccount session, String credentials) {

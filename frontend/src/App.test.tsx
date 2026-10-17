@@ -18,12 +18,14 @@ const unavailableSeat = { id: 'seat-2', sectionName: 'Orchestra', rowLabel: 'A',
 const detail = { ...event, serviceFee: { amountMinor: 250, currency: 'USD' }, seats: [availableSeat, unavailableSeat] }
 
 function response(body: unknown, status = 200) {
-  return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
+  return Promise.resolve(new Response(status === 204 ? null : JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  }))
 }
 
 function loginResult(role: 'CUSTOMER' | 'ADMIN' = 'CUSTOMER') {
   return {
-    accessToken: 'secret-token',
     expiresAt: '2030-01-01T00:00:00Z',
     account: { id: 'account-1', email: `${role.toLowerCase()}@example.com`, role },
   }
@@ -48,11 +50,13 @@ function requestBody(call: unknown[]) {
 }
 
 beforeEach(() => {
+  document.cookie = 'lockstep_csrf=; Max-Age=0; path=/'
   vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('11111111-1111-4111-8111-111111111111')
 })
 
 afterEach(() => {
   cleanup()
+  document.cookie = 'lockstep_csrf=; Max-Age=0; path=/'
   vi.restoreAllMocks()
 })
 
@@ -65,11 +69,29 @@ describe('secure session boundary', () => {
     render(<App />)
     expect(screen.getByRole('heading', { name: 'Find your next seat.' })).toBeInTheDocument()
     expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password')
-    expect(screen.getByText(/access token stays in memory/i)).toBeInTheDocument()
+    expect(screen.getByText(/protected, JavaScript-inaccessible cookie/i)).toBeInTheDocument()
     await signIn()
     expect(setItem).not.toHaveBeenCalled()
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
-    expect(new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers).get('Authorization')).toBe('Bearer secret-token')
+    const authenticatedRequest = vi.mocked(fetch).mock.calls[1]
+    expect(new Headers(authenticatedRequest[1]?.headers).get('Authorization')).toBeNull()
+    expect(authenticatedRequest[1]?.credentials).toBe('same-origin')
+  })
+
+  it.each([
+    { role: 'CUSTOMER' as const, heading: 'Choose an event.' },
+    { role: 'ADMIN' as const, heading: 'Events & reports' },
+  ])('restores an existing $role secure session after a page reload', async ({ role, heading }) => {
+    document.cookie = 'lockstep_csrf=csrf-test; path=/'
+    vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => response(loginResult(role).account))
+      .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
+
+    render(<App />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Restoring your secure session')
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+    expect(requestUrl(vi.mocked(fetch).mock.calls[0])).toBe('/api/auth/me')
   })
 
   it('redacts the password after a stable login error and rejects an unknown server role', async () => {
@@ -94,6 +116,24 @@ describe('secure session boundary', () => {
     render(<App />)
     await signIn()
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Find your next seat.' })).toBeInTheDocument())
+  })
+
+  it('sends the CSRF token when signing out and clears the UI session', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => response(loginResult()))
+      .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
+      .mockImplementationOnce(() => response(undefined, 204))
+    render(<App />)
+    await signIn()
+    document.cookie = 'lockstep_csrf=csrf-test; path=/'
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    await screen.findByRole('heading', { name: 'Find your next seat.' })
+    const logoutCall = vi.mocked(fetch).mock.calls[2]
+    expect(requestUrl(logoutCall)).toBe('/api/auth/logout')
+    expect(logoutCall[1]?.method).toBe('POST')
+    expect(new Headers(logoutCall[1]?.headers).get('X-CSRF-Token')).toBe('csrf-test')
   })
 })
 

@@ -48,6 +48,17 @@ public class AccessSessionRepository {
             .optional();
     }
 
+    public void revoke(byte[] tokenHash, Instant now) {
+        jdbcClient.sql("""
+                UPDATE access_session
+                SET revoked_at = :now
+                WHERE token_hash = :tokenHash AND revoked_at IS NULL
+                """)
+            .param("tokenHash", tokenHash)
+            .param("now", Timestamp.from(now))
+            .update();
+    }
+
     public record SessionAccount(UUID accountId, String email, Account.Role role) {
     }
 }

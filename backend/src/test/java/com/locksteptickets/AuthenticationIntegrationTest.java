@@ -9,10 +9,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.sql.Timestamp;
+import java.util.Arrays;
 import java.util.UUID;
 
 import com.locksteptickets.api.RequestIdFilter;
 import com.locksteptickets.api.JsonRequestSizeFilter;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +39,7 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 
 @SpringBootTest(properties = {
     "lockstep.authentication.ip-max-failures=6",
+    "lockstep.authentication.cookie-secure=true",
     "lockstep.http.trusted-proxy-cidrs=172.16.0.0/12"
 })
 @Testcontainers
@@ -83,27 +86,65 @@ class AuthenticationIntegrationTest {
     }
 
     @Test
-    void loginCreatesHashedSessionAndDerivesIdentityFromBearerToken() throws Exception {
+    void cookieSessionSurvivesRequestsRequiresCsrfAndLogoutRevokesIt() throws Exception {
         UUID accountId = insertAccount("customer@example.com", "CUSTOMER", true);
 
         MvcResult login = login("CUSTOMER@example.com", PASSWORD)
             .andExpect(status().isOk())
             .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
-            .andExpect(jsonPath("$.tokenType").value("Bearer"))
+            .andExpect(jsonPath("$.accessToken").doesNotExist())
+            .andExpect(jsonPath("$.tokenType").doesNotExist())
             .andExpect(jsonPath("$.account.id").value(accountId.toString()))
             .andExpect(jsonPath("$.account.role").value("CUSTOMER"))
             .andReturn();
 
-        String token = json(login).get("accessToken").asText();
+        String token = responseCookie(login, "lockstep_session");
+        String csrf = responseCookie(login, "lockstep_csrf");
         assertThat(token).hasSize(43);
+        assertThat(csrf).hasSize(43);
+        assertThat(login.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+            .anySatisfy(value -> assertThat(value)
+                .startsWith("lockstep_session=")
+                .contains("HttpOnly", "Secure", "SameSite=Strict", "Path=/"))
+            .anySatisfy(value -> assertThat(value)
+                .startsWith("lockstep_csrf=")
+                .doesNotContain("HttpOnly")
+                .contains("Secure", "SameSite=Strict", "Path=/"));
         assertThat(jdbcClient.sql("SELECT octet_length(token_hash) FROM access_session")
             .query(Integer.class).single()).isEqualTo(32);
+
+        mockMvc.perform(get("/api/auth/me")
+                .cookie(new Cookie("lockstep_session", token)))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(accountId.toString()));
 
         mockMvc.perform(get("/api/auth/me")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.id").value(accountId.toString()))
             .andExpect(jsonPath("$.email").value("customer@example.com"));
+
+        mockMvc.perform(post("/api/auth/logout")
+                .cookie(new Cookie("lockstep_session", token)))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("CSRF_TOKEN_INVALID"));
+
+        MvcResult logout = mockMvc.perform(post("/api/auth/logout")
+                .cookie(
+                    new Cookie("lockstep_session", token),
+                    new Cookie("lockstep_csrf", csrf))
+                .header("X-CSRF-Token", csrf))
+            .andExpect(status().isNoContent())
+            .andReturn();
+        assertThat(logout.getResponse().getHeaders(HttpHeaders.SET_COOKIE))
+            .anySatisfy(value -> assertThat(value).startsWith("lockstep_session=;"))
+            .anySatisfy(value -> assertThat(value).startsWith("lockstep_csrf=;"));
+
+        assertThat(jdbcClient.sql("SELECT revoked_at IS NOT NULL FROM access_session")
+            .query(Boolean.class).single()).isTrue();
+        mockMvc.perform(get("/api/auth/me")
+                .cookie(new Cookie("lockstep_session", token)))
+            .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -308,8 +349,18 @@ class AuthenticationIntegrationTest {
     }
 
     private String tokenFor(String email) throws Exception {
-        return json(login(email, PASSWORD).andExpect(status().isOk()).andReturn())
-            .get("accessToken").asText();
+        return responseCookie(login(email, PASSWORD).andExpect(status().isOk()).andReturn(),
+            "lockstep_session");
+    }
+
+    private String responseCookie(MvcResult result, String name) {
+        String prefix = name + '=';
+        return result.getResponse().getHeaders(HttpHeaders.SET_COOKIE).stream()
+            .filter(value -> value.startsWith(prefix))
+            .map(value -> Arrays.stream(value.substring(prefix.length()).split(";", 2))
+                .findFirst().orElseThrow())
+            .findFirst()
+            .orElseThrow();
     }
 
     private JsonNode json(MvcResult result) {

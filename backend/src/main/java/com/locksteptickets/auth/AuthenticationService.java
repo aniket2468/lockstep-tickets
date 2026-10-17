@@ -84,8 +84,14 @@ public class AuthenticationService {
         Instant expiresAt = createdAt.plus(sessionTtl);
         String token = randomToken();
         sessions.create(TokenDigester.sha256(token), account.id(), createdAt, expiresAt);
-        return new LoginResult(token, expiresAt,
+        return new LoginResult(token, expiresAt, sessionTtl,
             new AuthenticatedAccount(account.id(), account.email(), account.role()));
+    }
+
+    public void logout(String token) {
+        if (token != null) {
+            sessions.revoke(TokenDigester.sha256(token), clock.instant());
+        }
     }
 
     private void ensureNotBlocked(byte[] accountKey, byte[] ipKey, Instant now) {
@@ -135,7 +141,12 @@ public class AuthenticationService {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
-    public record LoginResult(String token, Instant expiresAt, AuthenticatedAccount account) {
+    public record LoginResult(
+        String token,
+        Instant expiresAt,
+        Duration maxAge,
+        AuthenticatedAccount account
+    ) {
     }
 
     public static final class InvalidCredentialsException extends RuntimeException {

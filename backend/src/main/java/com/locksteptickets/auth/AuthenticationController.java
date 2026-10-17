@@ -10,8 +10,9 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -27,13 +28,16 @@ public class AuthenticationController {
 
     private final AuthenticationService authenticationService;
     private final ClientIpResolver clientIpResolver;
+    private final SessionCookieService cookies;
 
     public AuthenticationController(
         AuthenticationService authenticationService,
-        ClientIpResolver clientIpResolver
+        ClientIpResolver clientIpResolver,
+        SessionCookieService cookies
     ) {
         this.authenticationService = authenticationService;
         this.clientIpResolver = clientIpResolver;
+        this.cookies = cookies;
     }
 
     @PostMapping("/login")
@@ -43,13 +47,25 @@ public class AuthenticationController {
     ) {
         AuthenticationService.LoginResult result = authenticationService.login(
             request.email(), request.password(), clientIpResolver.resolve(httpRequest));
+        String csrfToken = cookies.newCsrfToken();
         return ResponseEntity.ok()
+            .header(HttpHeaders.SET_COOKIE,
+                cookies.sessionCookie(result.token(), result.maxAge()).toString())
+            .header(HttpHeaders.SET_COOKIE,
+                cookies.csrfCookie(csrfToken, result.maxAge()).toString())
             .cacheControl(CacheControl.noStore())
             .body(new LoginResponse(
-                result.token(),
-                "Bearer",
                 result.expiresAt(),
                 AccountResponse.from(result.account())));
+    }
+
+    @PostMapping("/logout")
+    ResponseEntity<Void> logout(HttpServletRequest request) {
+        authenticationService.logout(cookies.authenticationToken(request));
+        return ResponseEntity.noContent()
+            .header(HttpHeaders.SET_COOKIE, cookies.clearSessionCookie().toString())
+            .header(HttpHeaders.SET_COOKIE, cookies.clearCsrfCookie().toString())
+            .build();
     }
 
     @ExceptionHandler(AuthenticationService.LoginThrottledException.class)
@@ -87,15 +103,12 @@ public class AuthenticationController {
     }
 
     public record LoginResponse(
-        String accessToken,
-        String tokenType,
         Instant expiresAt,
         AccountResponse account
     ) {
         @Override
         public String toString() {
-            return "LoginResponse[accessToken=[REDACTED], tokenType=" + tokenType
-                + ", expiresAt=" + expiresAt + ", account=" + account + "]";
+            return "LoginResponse[expiresAt=" + expiresAt + ", account=" + account + "]";
         }
     }
 

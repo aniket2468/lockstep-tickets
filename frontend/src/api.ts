@@ -26,7 +26,6 @@ export type EventDetail = EventSummary & { serviceFee: Money; seats: EventSeat[]
 export type EventPage = { items: EventSummary[]; limit: number; offset: number; hasMore: boolean }
 
 export type LoginResult = {
-  accessToken: string
   expiresAt: string
   account: { id: string; email: string; role: Role }
 }
@@ -179,13 +178,22 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+function cookie(name: string) {
+  const prefix = `${encodeURIComponent(name)}=`
+  const value = document.cookie.split('; ').find((item) => item.startsWith(prefix))
+  return value ? decodeURIComponent(value.slice(prefix.length)) : ''
+}
+
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
   if (init.body) headers.set('Content-Type', 'application/json')
-  if (token) headers.set('Authorization', `Bearer ${token}`)
+  if (init.method && !['GET', 'HEAD', 'OPTIONS'].includes(init.method.toUpperCase())) {
+    const csrfToken = cookie('lockstep_csrf')
+    if (csrfToken) headers.set('X-CSRF-Token', csrfToken)
+  }
 
-  const response = await fetch(path, { ...init, headers })
+  const response = await fetch(path, { ...init, headers, credentials: 'same-origin' })
   if (response.ok) {
     if (response.status === 204) return undefined as T
     return (await response.json()) as T
@@ -214,74 +222,80 @@ const withKey = (body: unknown, key: string): RequestInit => ({
 export const login = (email: string, password: string) =>
   request<LoginResult>('/api/auth/login', json({ email, password }))
 
-export function listEvents(token: string, query: string, signal?: AbortSignal) {
+export const currentAccount = () =>
+  request<LoginResult['account']>('/api/auth/me')
+
+export const logout = () =>
+  request<void>('/api/auth/logout', { method: 'POST' })
+
+export function listEvents(query: string, signal?: AbortSignal) {
   const search = new URLSearchParams({ limit: '20', offset: '0' })
   if (query) search.set('query', query)
-  return request<EventPage>(`/api/events?${search.toString()}`, { signal }, token)
+  return request<EventPage>(`/api/events?${search.toString()}`, { signal })
 }
 
-export const getEvent = (token: string, eventId: string, signal?: AbortSignal) =>
-  request<EventDetail>(`/api/events/${encodeURIComponent(eventId)}`, { signal }, token)
+export const getEvent = (eventId: string, signal?: AbortSignal) =>
+  request<EventDetail>(`/api/events/${encodeURIComponent(eventId)}`, { signal })
 
-export const createHold = (token: string, eventId: string, seatIds: string[], promoCode: string) =>
+export const createHold = (eventId: string, seatIds: string[], promoCode: string) =>
   request<Hold>(`/api/events/${encodeURIComponent(eventId)}/holds`, json({
     seatIds,
     promoCode: promoCode.trim() || null,
-  }), token)
+  }))
 
-export const checkout = (token: string, holdId: string, key: string) =>
-  request<Booking>(`/api/holds/${encodeURIComponent(holdId)}/checkout`, withKey({}, key), token)
+export const checkout = (holdId: string, key: string) =>
+  request<Booking>(`/api/holds/${encodeURIComponent(holdId)}/checkout`, withKey({}, key))
 
-export const reconcileBooking = (token: string, bookingId: string) =>
-  request<Booking>(`/api/bookings/${encodeURIComponent(bookingId)}/reconcile`, { method: 'POST' }, token)
+export const reconcileBooking = (bookingId: string) =>
+  request<Booking>(`/api/bookings/${encodeURIComponent(bookingId)}/reconcile`, { method: 'POST' })
 
-export const listBookings = (token: string, signal?: AbortSignal) =>
-  request<Booking[]>('/api/bookings', { signal }, token)
+export const listBookings = (signal?: AbortSignal) =>
+  request<Booking[]>('/api/bookings', { signal })
 
-export const getBooking = (token: string, bookingId: string, signal?: AbortSignal) =>
-  request<BookingDetail>(`/api/bookings/${encodeURIComponent(bookingId)}`, { signal }, token)
+export const getBooking = (bookingId: string, signal?: AbortSignal) =>
+  request<BookingDetail>(`/api/bookings/${encodeURIComponent(bookingId)}`, { signal })
 
-export const cancelTickets = (token: string, bookingId: string, ticketIds: string[], key: string) =>
-  request<Refund>(`/api/bookings/${encodeURIComponent(bookingId)}/cancellations`, withKey({ ticketIds }, key), token)
+export const cancelTickets = (bookingId: string, ticketIds: string[], key: string) =>
+  request<Refund>(`/api/bookings/${encodeURIComponent(bookingId)}/cancellations`, withKey({ ticketIds }, key))
 
-export const reconcileRefund = (token: string, refundId: string) =>
-  request<Refund>(`/api/refunds/${encodeURIComponent(refundId)}/reconcile`, { method: 'POST' }, token)
+export const reconcileRefund = (refundId: string) =>
+  request<Refund>(`/api/refunds/${encodeURIComponent(refundId)}/reconcile`, { method: 'POST' })
 
-export const retryRefund = (token: string, refundId: string, key: string) =>
-  request<Refund>(`/api/refunds/${encodeURIComponent(refundId)}/retry`, withKey({}, key), token)
+export const retryRefund = (refundId: string, key: string) =>
+  request<Refund>(`/api/refunds/${encodeURIComponent(refundId)}/retry`, withKey({}, key))
 
-export const listWaitlist = (token: string, signal?: AbortSignal) =>
-  request<WaitlistEntry[]>('/api/waitlist', { signal }, token)
+export const listWaitlist = (signal?: AbortSignal) =>
+  request<WaitlistEntry[]>('/api/waitlist', { signal })
 
-export const joinWaitlist = (token: string, eventId: string, quantity: number) =>
-  request<WaitlistEntry>(`/api/events/${encodeURIComponent(eventId)}/waitlist`, json({ preferredSectionId: null, quantity }), token)
+export const joinWaitlist = (eventId: string, quantity: number) =>
+  request<WaitlistEntry>(`/api/events/${encodeURIComponent(eventId)}/waitlist`, json({ preferredSectionId: null, quantity }))
 
-export const claimWaitlist = (token: string, entryId: string) =>
-  request<WaitlistClaim>(`/api/waitlist/${encodeURIComponent(entryId)}/claim`, { method: 'POST' }, token)
+export const claimWaitlist = (entryId: string) =>
+  request<WaitlistClaim>(`/api/waitlist/${encodeURIComponent(entryId)}/claim`, { method: 'POST' })
 
-export const cancelWaitlist = (token: string, entryId: string) =>
-  request<WaitlistEntry>(`/api/waitlist/${encodeURIComponent(entryId)}`, { method: 'DELETE' }, token)
+export const cancelWaitlist = (entryId: string) =>
+  request<WaitlistEntry>(`/api/waitlist/${encodeURIComponent(entryId)}`, { method: 'DELETE' })
 
-export const mutateSeat = (token: string, eventId: string, seatId: string, action: 'block' | 'release', reason: string) =>
-  request<{ id: string; inventoryState: string }>(`/api/admin/events/${encodeURIComponent(eventId)}/seats/${encodeURIComponent(seatId)}/${action}`, json({ reason }), token)
+export const mutateSeat = (eventId: string, seatId: string, action: 'block' | 'release', reason: string) =>
+  request<{ id: string; inventoryState: string }>(`/api/admin/events/${encodeURIComponent(eventId)}/seats/${encodeURIComponent(seatId)}/${action}`, json({ reason }))
 
-export const rescheduleEvent = (token: string, eventId: string, startsAt: string, reason: string) =>
-  request<{ id: string; state: string; previousStartsAt: string; startsAt: string; refundWindowEndsAt: string }>(`/api/admin/events/${encodeURIComponent(eventId)}/reschedule`, json({ startsAt, reason }), token)
+export const rescheduleEvent = (eventId: string, startsAt: string, reason: string) =>
+  request<{ id: string; state: string; previousStartsAt: string; startsAt: string; refundWindowEndsAt: string }>(`/api/admin/events/${encodeURIComponent(eventId)}/reschedule`, json({ startsAt, reason }))
 
-export const cancelEvent = (token: string, eventId: string, reason: string) =>
-  request<{ id: string; state: string; refunds: Refund[] }>(`/api/admin/events/${encodeURIComponent(eventId)}/cancel`, json({ reason }), token)
+export const cancelEvent = (eventId: string, reason: string) =>
+  request<{ id: string; state: string; refunds: Refund[] }>(`/api/admin/events/${encodeURIComponent(eventId)}/cancel`, json({ reason }))
 
-export const promoteWaitlist = (token: string, eventId: string, reason: string) =>
-  request<{ entryId: string; offerHoldId: string; state: string; expiresAt: string; seatIds: string[] }>(`/api/admin/events/${encodeURIComponent(eventId)}/waitlist/promotions`, json({ reason }), token)
+export const promoteWaitlist = (eventId: string, reason: string) =>
+  request<{ entryId: string; offerHoldId: string; state: string; expiresAt: string; seatIds: string[] }>(`/api/admin/events/${encodeURIComponent(eventId)}/waitlist/promotions`, json({ reason }))
 
-export const exceptionalRefund = (token: string, bookingId: string, ticketIds: string[], key: string, reason: string) =>
-  request<{ id: string; state: string; replayed: boolean }>(`/api/admin/bookings/${encodeURIComponent(bookingId)}/refunds`, withKey({ ticketIds, reason }, key), token)
+export const exceptionalRefund = (bookingId: string, ticketIds: string[], key: string, reason: string) =>
+  request<{ id: string; state: string; replayed: boolean }>(`/api/admin/bookings/${encodeURIComponent(bookingId)}/refunds`, withKey({ ticketIds, reason }, key))
 
-export const getSalesReport = (token: string, eventId: string, signal?: AbortSignal) =>
-  request<SalesReport>(`/api/admin/reports/events/${encodeURIComponent(eventId)}/sales`, { signal }, token)
+export const getSalesReport = (eventId: string, signal?: AbortSignal) =>
+  request<SalesReport>(`/api/admin/reports/events/${encodeURIComponent(eventId)}/sales`, { signal })
 
-export const getOccupancyReport = (token: string, eventId: string, signal?: AbortSignal) =>
-  request<OccupancyReport>(`/api/admin/reports/events/${encodeURIComponent(eventId)}/occupancy`, { signal }, token)
+export const getOccupancyReport = (eventId: string, signal?: AbortSignal) =>
+  request<OccupancyReport>(`/api/admin/reports/events/${encodeURIComponent(eventId)}/occupancy`, { signal })
 
-export const getAudit = (token: string, signal?: AbortSignal) =>
-  request<AuditRow[]>('/api/admin/audit?limit=50&offset=0', { signal }, token)
+export const getAudit = (signal?: AbortSignal) =>
+  request<AuditRow[]>('/api/admin/audit?limit=50&offset=0', { signal })

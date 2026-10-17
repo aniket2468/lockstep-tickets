@@ -52,6 +52,7 @@ management:
 lockstep:
   authentication:
     session-ttl: ${LOCKSTEP_SESSION_TTL:PT30M}
+    cookie-secure: ${LOCKSTEP_AUTH_COOKIE_SECURE:false}
     throttle-window: ${LOCKSTEP_LOGIN_THROTTLE_WINDOW:PT15M}
     throttle-duration: ${LOCKSTEP_LOGIN_THROTTLE_DURATION:PT15M}
     account-max-failures: ${LOCKSTEP_LOGIN_ACCOUNT_MAX_FAILURES:5}

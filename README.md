@@ -116,7 +116,7 @@ The live test books one available `Lockstep Demo` seat, refunds that exact
 ticket, and verifies that the seat is available again. It does not expose mock
 provider controls or delete the database.
 
-The current verification baseline is 78 backend tests, 11 frontend unit tests,
+The current verification baseline is 78 backend tests, 14 frontend unit tests,
 2 isolated browser tests, and 1 live-stack browser test. The exact commands,
 results, concurrency scenarios, and container scan evidence are recorded in
 [docs/VERIFICATION.md](docs/VERIFICATION.md).
@@ -162,6 +162,13 @@ backend on port 8080.
 - Demo data is opt-in and fails closed if required demo passwords are missing.
 - Login responses do not reveal whether an account exists, and authentication
   attempts are rate limited.
+- Browser sessions use a short-lived opaque token in an `HttpOnly`,
+  `SameSite=Strict` cookie, so refresh and browser navigation preserve login
+  without exposing the credential to JavaScript or browser storage. Unsafe
+  cookie-authenticated requests also require a matching CSRF token.
+- Signing out revokes the server-side session immediately and clears both
+  cookies. Set `LOCKSTEP_AUTH_COOKIE_SECURE=true` whenever the application is
+  served over HTTPS; local HTTP development intentionally keeps it `false`.
 - Request bodies and forwarded client-IP headers are handled with explicit
   limits and trusted-proxy rules.
 - Application containers run as non-root users with read-only filesystems.

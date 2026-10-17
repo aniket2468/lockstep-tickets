@@ -1,11 +1,11 @@
-import { FormEvent, useCallback, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useState } from 'react'
 
 import { AdminPortal } from './AdminPortal'
-import { ApiError, login, Role } from './api'
+import { ApiError, currentAccount, login, logout as logoutSession, Role } from './api'
 import { CustomerPortal } from './CustomerPortal'
 import { errorMessage } from './utils'
 
-type Session = { token: string; email: string; role: Role; expiresAt: string }
+type Session = { email: string; role: Role }
 
 function Login({ onAuthenticated }: { onAuthenticated: (session: Session) => void }) {
   const [busy, setBusy] = useState(false)
@@ -34,10 +34,8 @@ function Login({ onAuthenticated }: { onAuthenticated: (session: Session) => voi
       }
       form.reset()
       onAuthenticated({
-        token: result.accessToken,
         email: result.account.email,
         role: result.account.role,
-        expiresAt: result.expiresAt,
       })
     } catch (cause) {
       setError(errorMessage(cause))
@@ -60,7 +58,7 @@ function Login({ onAuthenticated }: { onAuthenticated: (session: Session) => voi
           {error && <p className="error" role="alert">{error}</p>}
           <button className="primary" disabled={busy} type="submit">{busy ? 'Signing in…' : 'Sign in'}</button>
         </form>
-        <p className="privacy-note">Your password is sent only to sign in. The access token stays in memory and is never stored in this browser.</p>
+        <p className="privacy-note">Your password is sent only to sign in. Your session uses a protected, JavaScript-inaccessible cookie.</p>
       </section>
     </main>
   )
@@ -68,7 +66,32 @@ function Login({ onAuthenticated }: { onAuthenticated: (session: Session) => voi
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null)
-  const logout = useCallback(() => setSession(null), [])
+  const [restoring, setRestoring] = useState(() => document.cookie.includes('lockstep_csrf='))
+
+  useEffect(() => {
+    if (!restoring) return
+    let active = true
+    currentAccount().then((account) => {
+      if (!active) return
+      if (account.role !== 'CUSTOMER' && account.role !== 'ADMIN') {
+        throw new ApiError('This account role is not supported.', 403, 'ACCESS_DENIED')
+      }
+      setSession({ email: account.email, role: account.role })
+    }).catch(() => {
+      if (active) setSession(null)
+    }).finally(() => {
+      if (active) setRestoring(false)
+    })
+    return () => { active = false }
+  }, [restoring])
+
+  const logout = useCallback(() => {
+    void logoutSession().catch(() => undefined).finally(() => setSession(null))
+  }, [])
+
+  if (restoring) {
+    return <main className="shell login-shell"><p role="status">Restoring your secure session…</p></main>
+  }
   if (!session) return <Login onAuthenticated={setSession} />
   return (
     <main className="app-shell">
@@ -77,8 +100,8 @@ export function App() {
         <button className="quiet" type="button" onClick={logout}>Sign out</button>
       </header>
       {session.role === 'ADMIN'
-        ? <AdminPortal token={session.token} onLogout={logout} />
-        : <CustomerPortal token={session.token} onLogout={logout} />}
+        ? <AdminPortal onLogout={logout} />
+        : <CustomerPortal onLogout={logout} />}
     </main>
   )
 }

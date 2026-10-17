@@ -176,10 +176,19 @@ counter.
 
 ### 11. Authentication and security
 
-The frontend stores the bearer token in memory rather than persistent browser
-storage. Backend roles are the authorization boundary. Login errors are
-generic, passwords use BCrypt, repeated authentication attempts are throttled,
-and JSON request sizes are bounded.
+The browser receives a short-lived opaque session token in an `HttpOnly`,
+`SameSite=Strict` cookie. This keeps the credential inaccessible to JavaScript
+while allowing refresh and browser navigation to restore the account through
+`/api/auth/me`. Unsafe cookie-authenticated requests require a separate
+double-submit CSRF token. Logout revokes the hashed database session and clears
+both cookies. The `Secure` cookie attribute is configurable because local demo
+HTTP cannot use it and must be enabled for HTTPS deployments.
+
+Backend roles remain the authorization boundary. Login errors are generic,
+passwords use BCrypt, repeated authentication attempts are throttled, and JSON
+request sizes are bounded. Bearer authentication remains accepted for direct
+API compatibility, but the browser does not receive or store the raw token in
+JavaScript.
 
 Forwarded client IPs are accepted only from configured trusted proxies.
 Application containers run as non-root with read-only filesystems. Demo
@@ -218,6 +227,11 @@ accounts are disabled by default and require explicit local passwords.
 - **Frontend request races:** an older response could overwrite a newer event
   selection. Requests are now cancelled or ignored when stale, with regression
   coverage.
+- **Refresh versus credential exposure:** the original in-memory bearer token
+  disappeared on refresh. I replaced browser token handling with a server-
+  revocable `HttpOnly` cookie, restored identity through `/api/auth/me`, added
+  CSRF validation for unsafe requests, and retained bearer support for direct
+  API clients.
 - **Reproducible verification:** local tool versions and running containers can
   hide failures. Commands and results are kept in a separate verification
   ledger, and Docker state is preserved unless a reset is explicitly required.
@@ -227,7 +241,7 @@ accounts are disabled by default and require explicit local passwords.
 The latest completed baseline is:
 
 - 78 backend tests with no failures, errors, or skips;
-- 11 frontend unit tests passing;
+- 14 frontend unit tests passing;
 - frontend lint and production build passing;
 - 2 isolated Playwright browser scenarios and 1 repeatable live-stack
   booking/refund scenario passing;
@@ -251,8 +265,6 @@ commands, dates, results, and scenarios are in
   tiers, and promotions. The required exceptional admin workflows exist, but
   the general management surface is incomplete.
 - Automate waitlist offer creation/expiry and outbound notifications.
-- Add server-side logout or token revocation if longer-lived sessions are
-  introduced.
 - Add administrator tooling for retrying failed or unknown refunds.
 - Before production, add TLS, managed secrets, a least-privilege database role,
   centralized/distributed throttling, narrow trusted-proxy networks, production
