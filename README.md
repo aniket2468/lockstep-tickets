@@ -100,9 +100,25 @@ npm run build
 npm run test:e2e
 ```
 
+With the Docker Compose application running, execute the real browser-to-
+database workflow using the credentials already stored in the ignored `.env`:
+
+```bash
+set -a
+source ../.env
+set +a
+LOCKSTEP_LIVE_E2E_CUSTOMER_EMAIL="$LOCKSTEP_DEMO_CUSTOMER_EMAIL" \
+LOCKSTEP_LIVE_E2E_CUSTOMER_PASSWORD="$LOCKSTEP_DEMO_CUSTOMER_PASSWORD" \
+npm run test:e2e:live
+```
+
+The live test books one available `Lockstep Demo` seat, refunds that exact
+ticket, and verifies that the seat is available again. It does not expose mock
+provider controls or delete the database.
+
 The current verification baseline is 78 backend tests, 11 frontend unit tests,
-and 2 browser tests. The exact commands, results, concurrency scenarios, and
-container scan evidence are recorded in
+2 isolated browser tests, and 1 live-stack browser test. The exact commands,
+results, concurrency scenarios, and container scan evidence are recorded in
 [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
 ## Run locally without containerizing the application

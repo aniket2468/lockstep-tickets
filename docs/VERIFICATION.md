@@ -38,7 +38,8 @@ server image/version will be recorded when the local environment is created.
 | Frontend stale-response protection | PASS | Controlled unresolved-search test with two successive queries | The first request's `AbortSignal` became aborted, the newer empty result rendered, and the stale promise could not replace it |
 | Frontend lint | PASS | `npm run lint` on 2026-10-16 | Type-aware ESLint completed with zero warnings; unsafe form-value coercion and effect-triggered state resets were corrected rather than suppressed |
 | Frontend production build | PASS | `npm run build` on 2026-10-16 | TypeScript 6 and Vite 8 production build completed; 21 modules transformed |
-| Browser workflow tests | PASS | `npm run test:e2e` using Playwright 1.64.1 and local Chrome on 2026-10-16 | 2 tests passed: an accessible customer seat-to-confirmation flow and a 390×844 admin reconciled-report flow; API responses were deterministically browser-mocked, so live-backend browser E2E remains a separate gap |
+| Browser workflow tests | PASS | `npm run test:e2e` using Playwright 1.64.1 and local Chrome on 2026-10-16 | 2 fast isolated tests passed: an accessible customer seat-to-confirmation flow and a 390×844 admin reconciled-report flow; the separate live-stack gate is recorded below |
+| Live-stack browser workflow | PASS | `npm run test:e2e:live` run twice against the Compose frontend, Spring backend, and PostgreSQL on 2026-10-16 | Both runs signed in through the real authentication boundary, selected live inventory, held and purchased one seat, refunded that exact ticket, and proved the seat became available again; the password came from the ignored `.env` and provider controls were not exposed |
 | Reconciliation assertions | PASS | Payment and refund timeout-to-success lookup integration cases | Pending inventory remained unavailable; payment reconciliation created exactly one ticket, refund reconciliation released exactly one seat, and foreign reconciliation was hidden |
 | Frontend dependency audit | PASS | Playwright dependency install plus container `npm ci` | 236 runtime/development packages audited; npm reported 0 vulnerabilities |
 | Backend dependency vulnerability scan | PASS | Trivy 0.74.0 against exported rebuilt backend image on 2026-10-16; fixed HIGH/CRITICAL gate with `--ignore-unfixed --exit-code 1` | Alpine 3.24.2: 0; packaged application JAR: 0. Initial scan found and blocked 3 CRITICAL Tomcat and 5 HIGH Jackson findings before version overrides |
@@ -58,6 +59,15 @@ explicitly documented scope or resilience gap and is not a passing result;
 
 Failures remain recorded here even after their regression gates pass:
 
+- The first live-E2E lint gate failed because the new config and spec were not
+  included in the type-aware TypeScript projects. Both are now compiled and
+  linted without a parser exemption. The first browser run then received the
+  intended CORS `403` because it used `127.0.0.1` instead of the documented
+  `localhost` origin; the live config now uses the allowed origin without
+  widening CORS. The next run completed checkout but expected the mocked
+  `LS-` reference prefix instead of the real `LT-` prefix. That exact test
+  booking was refunded through the normal authenticated API, the locator was
+  generalized, and two complete booking/refund/seat-reuse runs passed.
 - The first scheduler-isolation change added a test `application.yml`, which
   shadowed rather than merged the main datasource configuration. The full suite
   failed closed while creating its application contexts. The extra resource was

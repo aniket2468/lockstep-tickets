@@ -229,7 +229,8 @@ The latest completed baseline is:
 - 78 backend tests with no failures, errors, or skips;
 - 11 frontend unit tests passing;
 - frontend lint and production build passing;
-- 2 Playwright browser scenarios passing;
+- 2 isolated Playwright browser scenarios and 1 repeatable live-stack
+  booking/refund scenario passing;
 - repeated real-PostgreSQL same-seat races with exactly one winner;
 - runtime checks for health, stable error responses, security headers, JSON
   body limits, non-root users, and read-only container filesystems;
@@ -246,8 +247,6 @@ commands, dates, results, and scenarios are in
 
 - Add process-kill and database-interruption tests around payment and refund
   reconciliation.
-- Run browser tests against the live backend and PostgreSQL; current Playwright
-  scenarios isolate the UI with controlled API responses.
 - Build generic admin CRUD screens and APIs for venues, layouts, events, price
   tiers, and promotions. The required exceptional admin workflows exist, but
   the general management surface is incomplete.
