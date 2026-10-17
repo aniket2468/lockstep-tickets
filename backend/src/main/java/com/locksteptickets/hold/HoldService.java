@@ -110,6 +110,21 @@ public class HoldService {
         }
     }
 
+    @Transactional
+    public List<HoldResponse> listActive(AuthenticatedAccount account) {
+        if (account.role() != Account.Role.CUSTOMER) {
+            throw new HoldRejectedException(HttpStatus.FORBIDDEN, "ACCESS_DENIED", "Access is denied.");
+        }
+        Instant now = clock.instant();
+        repository.expireOwnedHolds(account.accountId(), now);
+        return repository.findActiveHolds(account.accountId(), now).stream()
+            .map(hold -> new HoldResponse(
+                hold.id(), hold.eventId(), hold.state(), hold.createdAt(), hold.expiresAt(),
+                hold.seatIds(), hold.promoCode(), hold.currency(), hold.subtotalMinor(),
+                hold.discountMinor(), hold.serviceFeeMinor(), hold.totalMinor(), List.of()))
+            .toList();
+    }
+
     private String normalizePromo(String requestedPromoCode) {
         if (requestedPromoCode == null || requestedPromoCode.isBlank()) {
             return null;

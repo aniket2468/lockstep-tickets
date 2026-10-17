@@ -116,8 +116,8 @@ The live test books one available `Lockstep Demo` seat, refunds that exact
 ticket, and verifies that the seat is available again. It does not expose mock
 provider controls or delete the database.
 
-The current verification baseline is 78 backend tests, 14 frontend unit tests,
-2 isolated browser tests, and 1 live-stack browser test. The exact commands,
+The current verification baseline is 78 backend tests, 15 frontend unit tests,
+2 isolated browser tests, and 3 live-stack browser tests. The exact commands,
 results, concurrency scenarios, and container scan evidence are recorded in
 [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
@@ -166,6 +166,9 @@ backend on port 8080.
   `SameSite=Strict` cookie, so refresh and browser navigation preserve login
   without exposing the credential to JavaScript or browser storage. Unsafe
   cookie-authenticated requests also require a matching CSRF token.
+- If a customer refreshes during the 10-minute seat-hold window, the app reads
+  that customer's unexpired hold from the server and resumes checkout; it does
+  not persist the hold or authentication credential in browser storage.
 - Signing out revokes the server-side session immediately and clears both
   cookies. Set `LOCKSTEP_AUTH_COOKIE_SECURE=true` whenever the application is
   served over HTTPS; local HTTP development intentionally keeps it `false`.

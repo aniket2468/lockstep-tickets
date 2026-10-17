@@ -184,6 +184,13 @@ double-submit CSRF token. Logout revokes the hashed database session and clears
 both cookies. The `Secure` cookie attribute is configurable because local demo
 HTTP cannot use it and must be enabled for HTTPS deployments.
 
+An active normal seat hold is also restored from the server after a refresh.
+The lookup is derived only from the authenticated account, never from a client-
+supplied account ID, excludes other customers and expired holds, and keeps the
+hold identifier out of persistent browser storage. The customer can therefore
+finish checkout during the original 10-minute window instead of leaving a
+protected but unreachable seat behind.
+
 Backend roles remain the authorization boundary. Login errors are generic,
 passwords use BCrypt, repeated authentication attempts are throttled, and JSON
 request sizes are bounded. Bearer authentication remains accepted for direct
@@ -232,6 +239,10 @@ accounts are disabled by default and require explicit local passwords.
   revocable `HttpOnly` cookie, restored identity through `/api/auth/me`, added
   CSRF validation for unsafe requests, and retained bearer support for direct
   API clients.
+- **Refresh during checkout:** the hold survived in PostgreSQL, but its ID lived
+  only in React memory, so refresh made a protected seat temporarily
+  unreachable. The UI now retrieves only the signed-in customer's unexpired
+  active hold and automatically resumes checkout without local/session storage.
 - **Reproducible verification:** local tool versions and running containers can
   hide failures. Commands and results are kept in a separate verification
   ledger, and Docker state is preserved unless a reset is explicitly required.
@@ -240,11 +251,12 @@ accounts are disabled by default and require explicit local passwords.
 
 The latest completed baseline is:
 
-- 78 backend tests with no failures, errors, or skips;
-- 14 frontend unit tests passing;
+- 79 backend tests with no failures, errors, or skips;
+- 16 frontend unit tests passing;
 - frontend lint and production build passing;
-- 2 isolated Playwright browser scenarios and 1 repeatable live-stack
-  booking/refund scenario passing;
+- 2 isolated Playwright browser scenarios, 1 repeatable live-stack
+  booking/refund scenario, and customer/admin live session-navigation scenarios
+  passing;
 - repeated real-PostgreSQL same-seat races with exactly one winner;
 - runtime checks for health, stable error responses, security headers, JSON
   body limits, non-root users, and read-only container filesystems;

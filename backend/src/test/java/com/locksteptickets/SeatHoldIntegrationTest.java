@@ -117,6 +117,54 @@ class SeatHoldIntegrationTest {
     }
 
     @Test
+    void listsOnlyTheCustomersOwnUnexpiredHoldsForCheckoutRecovery() throws Exception {
+        Fixture fixture = event("ON_SALE");
+        UUID first = seat(fixture, "1", "AVAILABLE", 0);
+        UUID second = seat(fixture, "2", "AVAILABLE", 1);
+
+        mockMvc.perform(create(fixture.eventId(), List.of(first), CUSTOMER_ONE_TOKEN))
+            .andExpect(status().isCreated());
+        mockMvc.perform(create(fixture.eventId(), List.of(second), CUSTOMER_TWO_TOKEN))
+            .andExpect(status().isCreated());
+
+        mockMvc.perform(auth(get("/api/holds/active"), CUSTOMER_ONE_TOKEN))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].eventId").value(fixture.eventId().toString()))
+            .andExpect(jsonPath("$[0].seatIds.length()").value(1))
+            .andExpect(jsonPath("$[0].seatIds[0]").value(first.toString()))
+            .andExpect(jsonPath("$[0].totalMinor").value(5000));
+        mockMvc.perform(get("/api/holds/active"))
+            .andExpect(status().isUnauthorized());
+        mockMvc.perform(auth(get("/api/holds/active"), ADMIN_TOKEN))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("ACCESS_DENIED"));
+
+        jdbcClient.sql("""
+                UPDATE seat_hold_item
+                SET claim_started_at = :started, claim_ends_at = :expired
+                WHERE event_seat_id = :seatId
+                """)
+            .param("started", Timestamp.from(NOW.minus(11, ChronoUnit.MINUTES)))
+            .param("expired", Timestamp.from(NOW.minus(1, ChronoUnit.MINUTES)))
+            .param("seatId", first).update();
+        jdbcClient.sql("""
+                UPDATE seat_hold
+                SET created_at = :started, expires_at = :expired
+                WHERE account_id = :accountId
+                """)
+            .param("started", Timestamp.from(NOW.minus(11, ChronoUnit.MINUTES)))
+            .param("expired", Timestamp.from(NOW.minus(1, ChronoUnit.MINUTES)))
+            .param("accountId", customerOne).update();
+
+        mockMvc.perform(auth(get("/api/holds/active"), CUSTOMER_ONE_TOKEN))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+        assertThat(jdbcClient.sql("SELECT state FROM seat_hold WHERE account_id = :accountId")
+            .param("accountId", customerOne).query(String.class).single()).isEqualTo("EXPIRED");
+    }
+
+    @Test
     void rejectsInvalidSeatSetsAndRollsBackMixedRequests() throws Exception {
         Fixture fixture = event("ON_SALE");
         UUID available = seat(fixture, "1", "AVAILABLE", 0);

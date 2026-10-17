@@ -13,7 +13,7 @@ server image/version will be recorded when the local environment is created.
 | Accepted rules documented | PASS | Manual comparison to supplied assignment and stakeholder reply on 2026-10-15 | Accepted answers and five required design decisions are recorded in `NOTES.md` |
 | Documentation whitespace check | PASS | `awk '/[[:blank:]]+$/ { ... }' README.md NOTES.md docs/*.md` on 2026-10-16 | Exit code 0; no trailing whitespace |
 | Backend unit tests | PASS | `JAVA_HOME=... ./mvnw test` rerun on 2026-10-19 | 15 unit/policy/security tests passed on Java 21.0.12.1, including trusted-proxy parsing and declared/chunked-style JSON size limits |
-| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 63 integration tests passed against PostgreSQL 18.6; 78 backend tests total with 0 failures, errors, or skips |
+| PostgreSQL integration tests | PASS | Same Maven run using Testcontainers 2.0.5 | 64 integration tests passed against PostgreSQL 18.6; 79 backend tests total with 0 failures, errors, or skips |
 | Same-seat concurrency repeated | PASS | 20 two-customer rounds coordinated with latches against PostgreSQL | Every round produced exactly one `201`, one `409`, one hold, and one hold item; no timing sleeps |
 | Customer-limit concurrency | PASS | 20 coordinated PostgreSQL races from 10 confirmed tickets with two concurrent two-seat requests | Every round produced exactly one success and one `CUSTOMER_EVENT_LIMIT_EXCEEDED`; the final aggregate remained exactly 12 |
 | Promo-limit concurrency | PASS | Two latch-coordinated checkouts for the final global use | Exactly one checkout returned `201`, one returned `409`, and only one payment attempt/redemption was created |
@@ -26,22 +26,22 @@ server image/version will be recorded when the local environment is created.
 | Upgrade migrations | PASS | Testcontainers test first targets V1 in a separate schema, then runs unrestricted Flyway | Flyway detected V1 and applied V2 through V8, reaching schema version 8 |
 | Authentication boundary | PASS | Full backend suite plus focused 10-test authentication rerun on 2026-10-19 | Proved hashed opaque sessions, `HttpOnly`/`SameSite=Strict`/configurable `Secure` cookies, cookie and bearer authentication, CSRF rejection for unsafe cookie requests, database revocation and cookie clearing on logout, expiry, malformed tokens, inactive-account invalidation, generic failures, proxy rules, throttling, request limits, role denial, strict JSON, no-store responses, and request IDs |
 | Authenticated event catalog | PASS | 6 MockMvc/PostgreSQL integration tests | Proved authentication, bounded literal search, deterministic pagination, customer-visible state and retirement filtering, safe 404/validation errors, snapshot seat output, and masking of blocks/internal inventory fields |
-| Atomic seat holds | PASS | 8 MockMvc/PostgreSQL integration tests | Proved customer-only access, one-to-six unique seats, fixed ten-minute expiry, start-inclusive/end-exclusive sales, one active hold, aggregate limit, mixed-request rollback, cross-event rejection, lazy expiry/reuse, live catalog masking, repeated same-seat contention, and repeated customer-limit contention |
+| Atomic seat holds | PASS | 9 MockMvc/PostgreSQL integration tests | Proved customer-only access, one-to-six unique seats, fixed ten-minute expiry, start-inclusive/end-exclusive sales, one active hold, aggregate limit, mixed-request rollback, cross-event rejection, lazy expiry/reuse, owned active-hold recovery without cross-customer disclosure, admin denial, live catalog masking, repeated same-seat contention, and repeated customer-limit contention |
 | Database-test fail-closed behavior | PASS | Focused Maven test with Docker socket inaccessible | Maven exited nonzero with 1 Testcontainers error and 0 skipped tests; PostgreSQL coverage can no longer silently disappear |
 | Authorization/horizontal access | PASS | Checkout, refund, admin, waitlist, and report integration cases | Unrelated customers receive safe `404` for owned resources, customers receive `403` on admin/report operations, and rejected requests create no success audit |
 | Scheduled payment recovery | PASS | Bounded PostgreSQL integration scenario with stale and fresh attempts | Two-item batches resolved stored-success, lookup-success, and lookup-decline results; unknown remained protected and was deferred; fresh work was ignored |
 | Process/database interruption | NOT RUN | State-level crash window is covered | No test currently kills the application process or interrupts PostgreSQL mid-operation |
 | Audit atomicity/cardinality | PASS | Admin/waitlist PostgreSQL integration tests and V6 triggers | Successful overrides/promotions created one audit row; rejected operations created none; database triggers rejected audit update and delete; event/inventory/waitlist outbox writes share their operation transaction |
-| Frontend workflow tests | PASS | `npm test -- --run` rerun on 2026-10-19 | 1 file and 14 tests passed with Vitest 5.0.5; covered secure cookie requests, customer and admin session restoration, CSRF-authenticated logout, role routing, stable errors, 401 logout, encoded/stale search, seat selection, server quotes, idempotency headers, absence of provider-outcome controls, sold-out waitlisting, booking cancellation, offer claim, admin reports/override, explicit-offset time validation, and audit output |
+| Frontend workflow tests | PASS | `npm test -- --run` rerun on 2026-10-19 | 1 file and 16 tests passed with Vitest 5.0.5; covered secure cookie requests, customer/admin refresh restoration, browser-history cache restoration, active-checkout recovery without browser storage, CSRF-authenticated explicit logout, local handling of expired sessions, role routing, stable errors, encoded/stale search, seat selection, server quotes, idempotency headers, absence of provider-outcome controls, sold-out waitlisting, booking cancellation, offer claim, admin reports/override, explicit-offset time validation, and audit output |
 | Provider simulation boundary | PASS | Strict JSON checkout test plus frontend request assertions on 2026-10-16 | Public customer/admin DTOs no longer accept payment, refund, or lookup outcomes; normal calls use internal success and failure scenarios are registered only inside integration tests |
 | Demo catalog fixture | PASS | `DemoProfileIntegrationTest` on 2026-10-16 | Opt-in demo startup created 2 hashed accounts, 3 events, 36 event seats, 2 sections, multiple tiers, blocked/accessible examples, and 2 promotions without destructive updates |
 | Frontend stale-response protection | PASS | Controlled unresolved-search test with two successive queries | The first request's `AbortSignal` became aborted, the newer empty result rendered, and the stale promise could not replace it |
 | Frontend lint | PASS | `npm run lint` rerun on 2026-10-19 | Type-aware ESLint completed with zero warnings |
 | Frontend production build | PASS | `npm run build` rerun on 2026-10-19 | TypeScript 6 and Vite 8 production build completed; 21 modules transformed |
 | Browser workflow tests | PASS | `npm run test:e2e` using Playwright 1.64.1 and local Chrome on 2026-10-19 | 2 fast isolated tests passed: an accessible customer seat-to-confirmation flow and a 390×844 admin reconciled-report flow; the separate live-stack gate is recorded below |
-| Live-stack browser workflow | PASS | `npm run test:e2e:live` against the rebuilt Compose frontend, Spring backend, and PostgreSQL on 2026-10-19 | The real browser signed in, reloaded without losing its session, selected live inventory, held and purchased one seat, refunded that exact ticket, and proved the seat became available again; the password came from the ignored `.env` |
+| Live-stack browser workflow | PASS | Live Playwright runs against the rebuilt Compose frontend, Spring backend, and PostgreSQL on 2026-10-19 | The booking/refund workflow created a real hold, refreshed on the checkout screen, rediscovered the owned hold, completed payment, refunded the ticket, and proved seat reuse. Separate focused customer and admin scenarios proved both roles survive refresh and leaving/returning with browser Back; credentials came from the ignored `.env` |
 | Reconciliation assertions | PASS | Payment and refund timeout-to-success lookup integration cases | Pending inventory remained unavailable; payment reconciliation created exactly one ticket, refund reconciliation released exactly one seat, and foreign reconciliation was hidden |
-| Frontend dependency audit | PASS | Playwright dependency install plus container `npm ci` | 236 runtime/development packages audited; npm reported 0 vulnerabilities |
+| Frontend dependency audit | PASS | Clean container `npm ci` rerun on 2026-10-19 | 238 dependency packages installed and 239 packages including the root project audited; npm reported 0 vulnerabilities |
 | Backend dependency vulnerability scan | PASS | Trivy 0.74.0 against exported rebuilt backend image on 2026-10-16; fixed HIGH/CRITICAL gate with `--ignore-unfixed --exit-code 1` | Alpine 3.24.2: 0; packaged application JAR: 0. Initial scan found and blocked 3 CRITICAL Tomcat and 5 HIGH Jackson findings before version overrides |
 | Container image scan | PASS | Trivy 0.74.0 against exported rebuilt frontend image on 2026-10-16; same gate | Alpine 3.23.4: 0. Initial scan found and blocked 43 HIGH findings before runtime package upgrades |
 | Container runtime hardening | PASS | `docker compose exec ... id` and `docker inspect` on 2026-10-16 | Backend UID 100 and frontend UID 101; both root filesystems read-only |
@@ -59,6 +59,30 @@ explicitly documented scope or resilience gap and is not a passing result;
 
 Failures remain recorded here even after their regression gates pass:
 
+- Refreshing checkout originally preserved the database hold but lost its ID
+  from React memory. The seat correctly remained unavailable, but the customer
+  had no path to pay for it. An authenticated ownership-scoped active-hold read
+  now lazily expires stale holds and resumes checkout without storing hold or
+  credential data in browser storage. Backend isolation/expiry tests, a
+  frontend reload regression test, and the real hold-refresh-pay-refund browser
+  workflow all pass.
+
+- A clean Compose rebuild failed with TypeScript `TS2688` because
+  `tsconfig.node.json` requested Node types while `@types/node` existed only as
+  an optional peer reference. Incremental local output had hidden the missing
+  declaration. `@types/node` is now an exact development dependency; forced
+  TypeScript compilation, tests, lint, production build, clean container
+  `npm ci`, Compose build, and live health all pass.
+- The first combined Back-navigation plus booking rerun reached the authenticated
+  catalog after both refresh and browser Back, then encountered an unrelated
+  pre-existing active demo hold and correctly received
+  `ONE_ACTIVE_HOLD_PER_EVENT`. Navigation is now a separate non-mutating live
+  scenario so session behavior is verified independently of mutable demo data.
+- The first browser-history restoration change synchronously entered loading
+  state through an effect helper, and the type-aware React lint rule rejected
+  it. Initial restoration now uses its already-initialized loading state, while
+  history events enter loading state from the event callback; all 15 tests,
+  lint, and the production build pass.
 - The first authentication-suite rerun used an unsupported multi-matcher
   overload for Spring's header assertion and failed during test compilation.
   The assertion now inspects the complete `Set-Cookie` header collection;

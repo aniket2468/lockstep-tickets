@@ -243,6 +243,9 @@ export const createHold = (eventId: string, seatIds: string[], promoCode: string
     promoCode: promoCode.trim() || null,
   }))
 
+export const listActiveHolds = (signal?: AbortSignal) =>
+  request<Hold[]>('/api/holds/active', { signal })
+
 export const checkout = (holdId: string, key: string) =>
   request<Booking>(`/api/holds/${encodeURIComponent(holdId)}/checkout`, withKey({}, key))
 

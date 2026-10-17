@@ -68,8 +68,7 @@ export function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [restoring, setRestoring] = useState(() => document.cookie.includes('lockstep_csrf='))
 
-  useEffect(() => {
-    if (!restoring) return
+  const restoreSession = useCallback(() => {
     let active = true
     currentAccount().then((account) => {
       if (!active) return
@@ -83,9 +82,26 @@ export function App() {
       if (active) setRestoring(false)
     })
     return () => { active = false }
-  }, [restoring])
+  }, [])
 
-  const logout = useCallback(() => {
+  useEffect(() => {
+    if (!document.cookie.includes('lockstep_csrf=')) return
+    return restoreSession()
+  }, [restoreSession])
+
+  useEffect(() => {
+    function restoreAfterHistoryNavigation(event: PageTransitionEvent) {
+      if (event.persisted && document.cookie.includes('lockstep_csrf=')) {
+        setRestoring(true)
+        restoreSession()
+      }
+    }
+    window.addEventListener('pageshow', restoreAfterHistoryNavigation)
+    return () => window.removeEventListener('pageshow', restoreAfterHistoryNavigation)
+  }, [restoreSession])
+
+  const clearSession = useCallback(() => setSession(null), [])
+  const signOut = useCallback(() => {
     void logoutSession().catch(() => undefined).finally(() => setSession(null))
   }, [])
 
@@ -97,11 +113,11 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div><p className="eyebrow">Lockstep Tickets</p><span className="signed-in">{session.role === 'ADMIN' ? 'Administrator' : 'Customer'} · {session.email}</span></div>
-        <button className="quiet" type="button" onClick={logout}>Sign out</button>
+        <button className="quiet" type="button" onClick={signOut}>Sign out</button>
       </header>
       {session.role === 'ADMIN'
-        ? <AdminPortal onLogout={logout} />
-        : <CustomerPortal onLogout={logout} />}
+        ? <AdminPortal onLogout={clearSession} />
+        : <CustomerPortal onLogout={clearSession} />}
     </main>
   )
 }

@@ -15,6 +15,7 @@ import {
   getEvent,
   Hold,
   joinWaitlist,
+  listActiveHolds,
   listBookings,
   listEvents,
   listWaitlist,
@@ -29,7 +30,7 @@ import { ErrorPanel, Loading, StatusBadge, SuccessPanel } from './ui'
 import { errorMessage, formText, formatDate, formatMinor, isAbort, newIdempotencyKey } from './utils'
 
 type Props = { onLogout: () => void }
-type Tab = 'events' | 'bookings' | 'waitlist'
+type Tab = 'events' | 'checkout' | 'bookings' | 'waitlist'
 
 function unauthorized(error: unknown, onLogout: () => void) {
   if (error instanceof ApiError && error.status === 401) {
@@ -41,30 +42,79 @@ function unauthorized(error: unknown, onLogout: () => void) {
 
 export function CustomerPortal({ onLogout }: Props) {
   const [tab, setTab] = useState<Tab>('events')
+  const [activeHolds, setActiveHolds] = useState<Hold[]>([])
+  const [activeHoldId, setActiveHoldId] = useState<string | null>(null)
+  const [loadingHold, setLoadingHold] = useState(true)
+  const [holdError, setHoldError] = useState('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    listActiveHolds(controller.signal).then((holds) => {
+      if (holds.length > 0) {
+        setActiveHolds(holds)
+        setActiveHoldId(holds[0].id)
+        setTab('checkout')
+      }
+    }).catch((cause: unknown) => {
+      if (isAbort(cause) || unauthorized(cause, onLogout)) return
+      setHoldError(errorMessage(cause))
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoadingHold(false)
+    })
+    return () => controller.abort()
+  }, [onLogout])
+
+  if (loadingHold) return <section className="content"><Loading>Checking for an active seat hold…</Loading></section>
+  if (holdError) return <section className="content"><ErrorPanel message={holdError} /></section>
+
+  const activeHold = activeHolds.find((hold) => hold.id === activeHoldId) ?? activeHolds[0] ?? null
+  const tabs: Tab[] = activeHolds.length > 0
+    ? ['events', 'checkout', 'bookings', 'waitlist']
+    : ['events', 'bookings', 'waitlist']
   return (
     <>
       <nav className="tabs" aria-label="Customer tools">
-        {(['events', 'bookings', 'waitlist'] as const).map((item) => (
+        {tabs.map((item) => (
           <button key={item} className={tab === item ? 'active' : ''} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => setTab(item)}>
-            {item === 'events' ? 'Events' : item === 'bookings' ? 'My bookings' : 'My waitlist'}
+            {item === 'events' ? 'Events' : item === 'checkout' ? 'Active checkout' : item === 'bookings' ? 'My bookings' : 'My waitlist'}
           </button>
         ))}
       </nav>
-      {tab === 'events' && <EventBrowser onLogout={onLogout} onBooked={() => setTab('bookings')} />}
+      {tab === 'events' && <EventBrowser onLogout={onLogout} onHold={(hold) => { setActiveHolds((current) => [hold, ...current.filter((item) => item.id !== hold.id)]); setActiveHoldId(hold.id); setTab('checkout') }} />}
+      {tab === 'checkout' && activeHold && (
+        <section className="content" aria-labelledby="checkout-heading">
+          <p className="eyebrow">Your seats are protected</p>
+          <h1 id="checkout-heading">Complete your active checkout.</h1>
+          {activeHolds.length > 1 && (
+            <div className="stack-list" aria-label="Active seat holds">
+              {activeHolds.map((hold) => (
+                <button key={hold.id} type="button" aria-pressed={hold.id === activeHold.id} onClick={() => setActiveHoldId(hold.id)}>
+                  {formatMinor(hold.totalMinor, hold.currency)} · expires {formatDate(hold.expiresAt)}
+                </button>
+              ))}
+            </div>
+          )}
+          <CheckoutPanel hold={activeHold} onLogout={onLogout} onBooked={() => {
+            const remaining = activeHolds.filter((hold) => hold.id !== activeHold.id)
+            setActiveHolds(remaining)
+            setActiveHoldId(remaining[0]?.id ?? null)
+            setTab('bookings')
+          }} />
+        </section>
+      )}
       {tab === 'bookings' && <Bookings onLogout={onLogout} />}
       {tab === 'waitlist' && <Waitlist onLogout={onLogout} onBooked={() => setTab('bookings')} />}
     </>
   )
 }
 
-function EventBrowser({ onLogout, onBooked }: Props & { onBooked: () => void }) {
+function EventBrowser({ onLogout, onHold }: Props & { onHold: (hold: Hold) => void }) {
   const [events, setEvents] = useState<EventSummary[]>([])
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<EventDetail | null>(null)
   const [selectedSeats, setSelectedSeats] = useState<string[]>([])
-  const [hold, setHold] = useState<Hold | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -95,7 +145,6 @@ function EventBrowser({ onLogout, onBooked }: Props & { onBooked: () => void }) 
     setSelectedId(null)
     setDetail(null)
     setSelectedSeats([])
-    setHold(null)
     setSubmittedQuery(query.trim())
   }
 
@@ -104,7 +153,6 @@ function EventBrowser({ onLogout, onBooked }: Props & { onBooked: () => void }) 
     setError('')
     setDetail(null)
     setSelectedSeats([])
-    setHold(null)
     setSuccess('')
     setSelectedId(id)
   }
@@ -115,7 +163,6 @@ function EventBrowser({ onLogout, onBooked }: Props & { onBooked: () => void }) 
     setSelectedId(null)
     setDetail(null)
     setSelectedSeats([])
-    setHold(null)
     setSuccess('')
   }
 
@@ -140,8 +187,7 @@ function EventBrowser({ onLogout, onBooked }: Props & { onBooked: () => void }) 
     const data = new FormData(event.currentTarget)
     try {
       const result = await createHold(detail.id, selectedSeats, formText(data, 'promoCode'))
-      setHold(result)
-      setSuccess('Your seats are held. Complete checkout before the server deadline.')
+      onHold(result)
     } catch (cause) {
       if (!unauthorized(cause, onLogout)) setError(errorMessage(cause))
     } finally {
@@ -175,9 +221,7 @@ function EventBrowser({ onLogout, onBooked }: Props & { onBooked: () => void }) 
           {success && <SuccessPanel>{success}</SuccessPanel>}
           {detail && !loading && (
             <EventDetailView event={detail} selectedSeats={selectedSeats} onToggle={toggleSeat}>
-              {hold ? (
-                <CheckoutPanel hold={hold} onLogout={onLogout} onBooked={onBooked} />
-              ) : selectedSeats.length > 0 ? (
+              {selectedSeats.length > 0 ? (
                 <form className="action-card" onSubmit={(event) => void holdSeats(event)}>
                   <h2>Hold {selectedSeats.length} {selectedSeats.length === 1 ? 'seat' : 'seats'}</h2>
                   <label htmlFor="promo-code">Promo code (optional)</label>

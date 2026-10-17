@@ -65,6 +65,7 @@ describe('secure session boundary', () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
     vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => response(loginResult()))
+      .mockImplementationOnce(() => response([]))
       .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
     render(<App />)
     expect(screen.getByRole('heading', { name: 'Find your next seat.' })).toBeInTheDocument()
@@ -72,7 +73,7 @@ describe('secure session boundary', () => {
     expect(screen.getByText(/protected, JavaScript-inaccessible cookie/i)).toBeInTheDocument()
     await signIn()
     expect(setItem).not.toHaveBeenCalled()
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3))
     const authenticatedRequest = vi.mocked(fetch).mock.calls[1]
     expect(new Headers(authenticatedRequest[1]?.headers).get('Authorization')).toBeNull()
     expect(authenticatedRequest[1]?.credentials).toBe('same-origin')
@@ -83,14 +84,30 @@ describe('secure session boundary', () => {
     { role: 'ADMIN' as const, heading: 'Events & reports' },
   ])('restores an existing $role secure session after a page reload', async ({ role, heading }) => {
     document.cookie = 'lockstep_csrf=csrf-test; path=/'
-    vi.spyOn(globalThis, 'fetch')
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => response(loginResult(role).account))
-      .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
+    if (role === 'CUSTOMER') fetchMock.mockImplementationOnce(() => response([]))
+    fetchMock.mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
 
     render(<App />)
 
     expect(screen.getByRole('status')).toHaveTextContent('Restoring your secure session')
     expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+    expect(requestUrl(vi.mocked(fetch).mock.calls[0])).toBe('/api/auth/me')
+  })
+
+  it('restores a cached pre-login page when browser history returns to it', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => response(loginResult().account))
+      .mockImplementationOnce(() => response([]))
+      .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
+    render(<App />)
+    expect(screen.getByRole('heading', { name: 'Find your next seat.' })).toBeInTheDocument()
+    document.cookie = 'lockstep_csrf=csrf-test; path=/'
+
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+
+    expect(await screen.findByRole('heading', { name: 'Choose an event.' })).toBeInTheDocument()
     expect(requestUrl(vi.mocked(fetch).mock.calls[0])).toBe('/api/auth/me')
   })
 
@@ -114,13 +131,16 @@ describe('secure session boundary', () => {
       .mockImplementationOnce(() => response(loginResult()))
       .mockImplementationOnce(() => response({ error: { message: 'Authentication is required.' } }, 401))
     render(<App />)
-    await signIn()
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'customer@example.com' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery staple' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Find your next seat.' })).toBeInTheDocument())
   })
 
   it('sends the CSRF token when signing out and clears the UI session', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => response(loginResult()))
+      .mockImplementationOnce(() => response([]))
       .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
       .mockImplementationOnce(() => response(undefined, 204))
     render(<App />)
@@ -130,7 +150,7 @@ describe('secure session boundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
     await screen.findByRole('heading', { name: 'Find your next seat.' })
-    const logoutCall = vi.mocked(fetch).mock.calls[2]
+    const logoutCall = vi.mocked(fetch).mock.calls[3]
     expect(requestUrl(logoutCall)).toBe('/api/auth/logout')
     expect(logoutCall[1]?.method).toBe('POST')
     expect(new Headers(logoutCall[1]?.headers).get('X-CSRF-Token')).toBe('csrf-test')
@@ -138,9 +158,29 @@ describe('secure session boundary', () => {
 })
 
 describe('customer workflows', () => {
+  it('rediscovers an owned active hold after refresh and resumes checkout', async () => {
+    const hold = { id: 'hold-resumed', eventId: event.id, state: 'ACTIVE', createdAt: '2030-01-01T00:00:00Z', expiresAt: '2030-01-01T00:10:00Z', seatIds: ['seat-1'], promoCode: null, currency: 'USD', subtotalMinor: 5000, discountMinor: 0, serviceFeeMinor: 250, totalMinor: 5250, lines: [] }
+    document.cookie = 'lockstep_csrf=csrf-test; path=/'
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => response(loginResult().account))
+      .mockImplementationOnce(() => response([hold]))
+      .mockImplementationOnce(() => response({ id: 'booking-1', reference: 'LS-RESUMED', holdId: hold.id, state: 'CONFIRMED', currency: 'USD', totalMinor: 5250 }, 201))
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Complete your active checkout.' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Checkout' })).toBeInTheDocument()
+    expect(requestUrl(vi.mocked(fetch).mock.calls[1])).toBe('/api/holds/active')
+    expect(setItem).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Complete checkout' }))
+    expect(await screen.findByRole('heading', { name: 'Booking LS-RESUMED' })).toBeInTheDocument()
+  })
+
   it('encodes literal search input and renders explicit empty state', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => response(loginResult()))
+      .mockImplementationOnce(() => response([]))
       .mockImplementationOnce(() => response({ items: [event], limit: 20, offset: 0, hasMore: false }))
       .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
     render(<App />)
@@ -149,12 +189,13 @@ describe('customer workflows', () => {
     fireEvent.change(screen.getByLabelText('Search events'), { target: { value: "100%_' OR 1=1" } })
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
     expect(await screen.findByText('No events match your search.')).toBeInTheDocument()
-    expect(requestUrl(vi.mocked(fetch).mock.calls[2])).toContain('query=100%25_%27+OR+1%3D1')
+    expect(requestUrl(vi.mocked(fetch).mock.calls[3])).toContain('query=100%25_%27+OR+1%3D1')
   })
 
   it('aborts a superseded search so a stale response cannot replace newer results', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => response(loginResult()))
+      .mockImplementationOnce(() => response([]))
       .mockImplementationOnce(() => response({ items: [event], limit: 20, offset: 0, hasMore: false }))
       .mockImplementationOnce(() => new Promise<Response>(() => undefined))
       .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
@@ -163,19 +204,20 @@ describe('customer workflows', () => {
     await screen.findByRole('heading', { name: event.name })
     fireEvent.change(screen.getByLabelText('Search events'), { target: { value: 'older' } })
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3))
-    const staleSignal = vi.mocked(fetch).mock.calls[2][1]?.signal
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4))
+    const staleSignal = vi.mocked(fetch).mock.calls[3][1]?.signal
     fireEvent.change(screen.getByLabelText('Search events'), { target: { value: 'newer' } })
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
     expect(await screen.findByText('No events match your search.')).toBeInTheDocument()
     expect(staleSignal?.aborted).toBe(true)
-    expect(requestUrl(vi.mocked(fetch).mock.calls[3])).toContain('query=newer')
+    expect(requestUrl(vi.mocked(fetch).mock.calls[4])).toContain('query=newer')
   })
 
   it('selects only available seats, creates a server quote, and checks out with one idempotency key', async () => {
     const hold = { id: 'hold-1', eventId: event.id, state: 'ACTIVE', createdAt: '2030-01-01T00:00:00Z', expiresAt: '2030-01-01T00:10:00Z', seatIds: ['seat-1'], promoCode: null, currency: 'USD', subtotalMinor: 5000, discountMinor: 500, serviceFeeMinor: 250, totalMinor: 4750, lines: [] }
     vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => response(loginResult()))
+      .mockImplementationOnce(() => response([]))
       .mockImplementationOnce(() => response({ items: [event], limit: 20, offset: 0, hasMore: false }))
       .mockImplementationOnce(() => response(detail))
       .mockImplementationOnce(() => response(hold, 201))
@@ -192,10 +234,10 @@ describe('customer workflows', () => {
     expect(screen.getByText('$47.50')).toBeInTheDocument()
     expect(screen.queryByLabelText('Mock provider result')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Status lookup result')).not.toBeInTheDocument()
-    expect(requestBody(vi.mocked(fetch).mock.calls[3])).toEqual({ seatIds: ['seat-1'], promoCode: 'SAVE10' })
+    expect(requestBody(vi.mocked(fetch).mock.calls[4])).toEqual({ seatIds: ['seat-1'], promoCode: 'SAVE10' })
     fireEvent.click(screen.getByRole('button', { name: 'Complete checkout' }))
     expect(await screen.findByRole('heading', { name: 'Booking LS-123' })).toBeInTheDocument()
-    const checkoutCall = vi.mocked(fetch).mock.calls[4]
+    const checkoutCall = vi.mocked(fetch).mock.calls[5]
     expect(new Headers(checkoutCall[1]?.headers).get('Idempotency-Key')).toBe('ui-11111111-1111-4111-8111-111111111111')
     expect(requestBody(checkoutCall)).toEqual({})
   })
@@ -203,6 +245,7 @@ describe('customer workflows', () => {
   it('offers sold-out waitlisting without pretending to reserve or purchase seats', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => response(loginResult()))
+      .mockImplementationOnce(() => response([]))
       .mockImplementationOnce(() => response({ items: [event], limit: 20, offset: 0, hasMore: false }))
       .mockImplementationOnce(() => response({ ...detail, seats: [unavailableSeat] }))
       .mockImplementationOnce(() => response({ id: 'entry-1', eventId: event.id, preferredSectionId: null, quantity: 2, state: 'WAITING', offerHoldId: null, claimedHoldId: null, offerExpiresAt: null, createdAt: '2030-01-01T00:00:00Z' }, 201))
@@ -212,7 +255,7 @@ describe('customer workflows', () => {
     fireEvent.change(await screen.findByLabelText('Number of seats'), { target: { value: '2' } })
     fireEvent.click(screen.getByRole('button', { name: 'Join waitlist' }))
     expect(await screen.findByText(/offers must be claimed within 15 minutes/i)).toBeInTheDocument()
-    expect(requestBody(vi.mocked(fetch).mock.calls[3])).toEqual({ preferredSectionId: null, quantity: 2 })
+    expect(requestBody(vi.mocked(fetch).mock.calls[4])).toEqual({ preferredSectionId: null, quantity: 2 })
   })
 
   it('loads owned booking details and submits only explicitly selected tickets', async () => {
@@ -220,6 +263,7 @@ describe('customer workflows', () => {
     const ticket = { id: 'ticket-1', eventSeatId: 'seat-1', state: 'CONFIRMED', chargedTotalMinor: 5250, serviceFeeMinor: 250, currency: 'USD', section: 'Orchestra', row: 'A', number: '1' }
     vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => response(loginResult()))
+      .mockImplementationOnce(() => response([]))
       .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
       .mockImplementationOnce(() => response([summary]))
       .mockImplementationOnce(() => response({ id: 'booking-1', eventId: event.id, state: 'CONFIRMED', currency: 'USD', startsAt: event.startsAt, tickets: [ticket] }))
@@ -233,7 +277,7 @@ describe('customer workflows', () => {
     fireEvent.click(checkbox)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel selected tickets' }))
     expect(await screen.findByText('Refund SUCCEEDED')).toBeInTheDocument()
-    const call = vi.mocked(fetch).mock.calls[4]
+    const call = vi.mocked(fetch).mock.calls[5]
     expect(requestBody(call)).toEqual({ ticketIds: ['ticket-1'] })
     expect(new Headers(call[1]?.headers).get('Idempotency-Key')).toMatch(/^ui-/)
   })
@@ -242,6 +286,7 @@ describe('customer workflows', () => {
     const entry = { id: 'entry-1', eventId: event.id, preferredSectionId: null, quantity: 1, state: 'OFFERED', offerHoldId: 'offer-1', claimedHoldId: null, offerExpiresAt: '2030-01-01T00:15:00Z', createdAt: '2030-01-01T00:00:00Z' }
     vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => response(loginResult()))
+      .mockImplementationOnce(() => response([]))
       .mockImplementationOnce(() => response({ items: [], limit: 20, offset: 0, hasMore: false }))
       .mockImplementationOnce(() => response([entry]))
       .mockImplementationOnce(() => response({ entryId: 'entry-1', holdId: 'hold-1', eventId: event.id, state: 'CLAIMED', createdAt: '2030-01-01T00:01:00Z', expiresAt: '2030-01-01T00:11:00Z', seatIds: ['seat-1'], currency: 'USD', subtotalMinor: 5000, discountMinor: 0, serviceFeeMinor: 250, totalMinor: 5250 }, 201))
@@ -251,7 +296,7 @@ describe('customer workflows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'My waitlist' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Claim offer' }))
     expect(await screen.findByRole('heading', { name: 'Checkout' })).toBeInTheDocument()
-    expect(requestUrl(vi.mocked(fetch).mock.calls[3])).toContain('/api/waitlist/entry-1/claim')
+    expect(requestUrl(vi.mocked(fetch).mock.calls[4])).toContain('/api/waitlist/entry-1/claim')
   })
 })
 

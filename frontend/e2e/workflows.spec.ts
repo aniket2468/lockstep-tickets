@@ -18,6 +18,8 @@ async function mockApi(page: Page, role: 'CUSTOMER' | 'ADMIN') {
     let status = 200
     if (path === '/api/auth/login') {
       body = { expiresAt: '2030-01-01T00:00:00Z', account: { id: 'account-1', email: `${role.toLowerCase()}@example.com`, role } }
+    } else if (path === '/api/holds/active') {
+      body = []
     } else if (path === '/api/events') {
       body = { items: [event], limit: 20, offset: 0, hasMore: false }
     } else if (path === '/api/events/event-1') {
@@ -56,7 +58,7 @@ test('customer completes an accessible seat-to-confirmation workflow', async ({ 
   await seat.click()
   await expect(page.getByRole('button', { name: /row A, seat 1, selected/i })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Hold selected seats' }).click()
-  await expect(page.getByRole('heading', { name: 'Checkout' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Checkout', exact: true })).toBeVisible()
   await expect(page.getByText('$52.50')).toBeVisible()
   await page.getByRole('button', { name: 'Complete checkout' }).click()
   await expect(page.getByRole('heading', { name: 'Booking LS-BROWSER' })).toBeVisible()

@@ -110,6 +110,46 @@ public class HoldRepository {
             .param("now", Timestamp.from(now)).query(Boolean.class).single();
     }
 
+    void expireOwnedHolds(UUID accountId, Instant now) {
+        jdbcClient.sql("""
+                UPDATE seat_hold
+                SET state = 'EXPIRED', ended_at = expires_at, version = version + 1
+                WHERE account_id = :accountId AND state = 'ACTIVE'
+                  AND expires_at <= :now
+                """)
+            .param("accountId", accountId).param("now", Timestamp.from(now)).update();
+    }
+
+    List<ActiveHold> findActiveHolds(UUID accountId, Instant now) {
+        return jdbcClient.sql("""
+                SELECT h.id, h.event_id, h.state, h.created_at, h.expires_at,
+                       p.code AS promo_code, h.currency, h.subtotal_minor,
+                       h.discount_minor, h.service_fee_minor, h.total_minor,
+                       ARRAY(SELECT i.event_seat_id
+                             FROM seat_hold_item i
+                             WHERE i.hold_id = h.id
+                             ORDER BY i.event_seat_id) AS seat_ids
+                FROM seat_hold h
+                LEFT JOIN promo_code p ON p.id = h.promo_id
+                WHERE h.account_id = :accountId
+                  AND h.state = 'ACTIVE' AND h.expires_at > :now
+                ORDER BY h.created_at DESC, h.id
+                """)
+            .param("accountId", accountId).param("now", Timestamp.from(now))
+            .query((rs, row) -> {
+                Object[] values = (Object[]) rs.getArray("seat_ids").getArray();
+                List<UUID> seatIds = java.util.Arrays.stream(values)
+                    .map(UUID.class::cast).toList();
+                return new ActiveHold(
+                    rs.getObject("id", UUID.class), rs.getObject("event_id", UUID.class),
+                    rs.getString("state"), rs.getTimestamp("created_at").toInstant(),
+                    rs.getTimestamp("expires_at").toInstant(), seatIds,
+                    rs.getString("promo_code"), rs.getString("currency").strip(),
+                    rs.getLong("subtotal_minor"), rs.getLong("discount_minor"),
+                    rs.getLong("service_fee_minor"), rs.getLong("total_minor"));
+            }).list();
+    }
+
     List<SeatForHold> lockSeats(UUID eventId, List<UUID> seatIds) {
         return jdbcClient.sql("""
                 SELECT es.id, es.inventory_state, pt.price_minor, pt.currency
@@ -223,4 +263,8 @@ public class HoldRepository {
     record PromoForHold(UUID id, PricingPolicy.PromoType type, long value, boolean exclusive,
                         Integer globalLimit, Integer perCustomerLimit, int redeemedCount,
                         int customerUses) {}
+    record ActiveHold(UUID id, UUID eventId, String state, Instant createdAt, Instant expiresAt,
+                      List<UUID> seatIds, String promoCode, String currency,
+                      long subtotalMinor, long discountMinor, long serviceFeeMinor,
+                      long totalMinor) {}
 }
